@@ -16,7 +16,8 @@ const BetfairClient          = require('./betfair');
 const RacingApiClient        = require('./racingApi');
 const OddsApiClient          = require('./oddsApi');
 const { fetchAllTips }       = require('./scraper');
-const ResultsTracker             = require('./resultsTracker');
+const { fetchRaceCards }     = require('./racecardScraper');
+const ResultsTracker         = require('./resultsTracker');
 
 class DataManager {
   constructor() {
@@ -25,13 +26,15 @@ class DataManager {
     this.useMockData = true;
     this.isPolling   = false;
 
-    this.betfair   = null;
-    this.racingApi = null;
-    this.oddsApi   = null;
+    this.betfair        = null;
+    this.racingApi      = null;
+    this.oddsApi        = null;
+    this.useScraperMode = false;
 
     // Persists the first-seen Betfair price as morning odds across refreshes
     this._morningOddsCache = {};
 
+    this._scraperStatus  = null;
     this.resultsTracker  = null;
     this._pendingResults = new Map(); // marketId → race (for result detection)
   }
@@ -47,12 +50,17 @@ class DataManager {
       POLL_INTERVAL,
     } = process.env;
 
-    // Betfair alone is sufficient for live mode — race cards come from
-    // listMarketCatalogue (RUNNER_DESCRIPTION), so Racing API is optional.
-    const forceMock = USE_MOCK_DATA === 'true' || !BETFAIR_USERNAME;
-    this.useMockData = forceMock;
+    // Mode selection:
+    //   USE_MOCK_DATA=true            → mock mode (demo data, no scraping)
+    //   BETFAIR_USERNAME set          → full live mode (Betfair odds + scraper tips)
+    //   Neither                       → scraper mode (GBGB race cards + tip scrapers, no odds)
+    const forceMock = USE_MOCK_DATA === 'true';
+    this.useMockData    = forceMock;
+    this.useScraperMode = !forceMock && !BETFAIR_USERNAME;
 
-    if (!forceMock) {
+    if (this.useScraperMode) {
+      console.log('[DataManager] Scraper mode — GBGB race cards + tip scrapers (no exchange odds)');
+    } else if (!forceMock) {
       this.betfair = new BetfairClient({
         username: BETFAIR_USERNAME,
         password: BETFAIR_PASSWORD,
@@ -108,11 +116,13 @@ class DataManager {
       if (this.useMockData) {
         races = generateMockRaces();
         races = simulateOddsMovement(races);
+      } else if (this.useScraperMode) {
+        races = await this._fetchScraperRaces();
       } else {
         races = await this._fetchLiveRaces();
       }
 
-      // Tips: real scrape in live mode; derive from mock tipSources in demo mode
+      // Tips: real scrape in live/scraper mode; derive from mock tipSources in demo mode
       const tips = this.useMockData
         ? buildMockTips(races)
         : await fetchAllTips().catch(err => {
@@ -188,6 +198,32 @@ class DataManager {
     return races;
   }
 
+  // ── Scraper mode race fetch ─────────────────────────────────────────────────
+
+  async _fetchScraperRaces() {
+    try {
+      const races = await fetchRaceCards();
+      this._scraperStatus = {
+        connected:   true,
+        lastSuccess: new Date().toISOString(),
+        lastError:   null,
+      };
+      if (!races.length) {
+        console.warn('[DataManager] Scraper returned 0 races — check source sites');
+      }
+      return races;
+    } catch (err) {
+      this._scraperStatus = {
+        connected:   false,
+        lastError:   err.message,
+        lastSuccess: this._scraperStatus?.lastSuccess || null,
+      };
+      // Return last known races so the UI stays populated
+      console.error('[DataManager] Race card scrape failed:', err.message);
+      return this.races || [];
+    }
+  }
+
   // ── Results detection ───────────────────────────────────────────────────────
 
   async _checkPendingResults() {
@@ -235,6 +271,9 @@ class DataManager {
       oddsApi: this.oddsApi
         ? this.oddsApi.status
         : { connected: false, lastError: 'Not configured', lastSuccess: null, remainingRequests: null },
+      scraper: this.useScraperMode
+        ? (this._scraperStatus || { connected: false, lastError: 'Pending first fetch', lastSuccess: null })
+        : { connected: false, lastError: 'Not in scraper mode', lastSuccess: null },
     };
   }
 
