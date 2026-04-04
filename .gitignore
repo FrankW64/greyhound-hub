@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment — never commit credentials
+.env
+
+# Runtime data — persists on the server, not in git
+data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.claude/

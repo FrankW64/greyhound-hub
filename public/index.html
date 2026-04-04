@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Greyhound Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="logo.png" />
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-title">
+        <img src="logo.png" alt="Greyhound Hub" class="header-logo" />
+        <div>
+          <h1>Greyhound Hub</h1>
+          <p class="header-sub">UK Live Odds &amp; Tips Dashboard</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <div id="mock-badge" class="mock-badge hidden">DEMO DATA</div>
+
+        <!-- API status indicators -->
+        <div class="api-status-wrap">
+          <div class="api-status-item" id="status-betfair" title="Betfair Exchange">
+            <span class="api-dot"></span>
+            <span class="api-label">BFX</span>
+          </div>
+          <div class="api-status-item" id="status-oddsapi" title="The Odds API">
+            <span class="api-dot"></span>
+            <span class="api-label">ODDS</span>
+          </div>
+        </div>
+
+        <div class="refresh-info">
+          <span id="last-updated" class="last-updated">Loading…</span>
+          <div class="refresh-bar-wrap" title="Auto-refreshes every 60 seconds">
+            <div id="refresh-bar" class="refresh-bar"></div>
+          </div>
+          <span id="refresh-countdown" class="refresh-countdown"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Info panel ───────────────────────────────────────────────────────── -->
+  <div class="info-panel">
+    <div class="info-inner">
+
+      <!-- Trap colour key -->
+      <div class="info-block">
+        <h3 class="info-heading">Trap colours</h3>
+        <div class="trap-key">
+          <span class="trap-badge t1">1</span>
+          <span class="trap-badge t2">2</span>
+          <span class="trap-badge t3">3</span>
+          <span class="trap-badge t4">4</span>
+          <span class="trap-badge t5">5</span>
+          <span class="trap-badge t6">6</span>
+        </div>
+      </div>
+
+      <!-- Tip sources -->
+      <div class="info-block">
+        <h3 class="info-heading">Tip sources</h3>
+        <div class="sources-list">
+          <div class="source-item">
+            <span class="source-tag">TF</span>
+            <div>
+              <strong>Timeform</strong>
+              <p>timeform.com — expert analyst selections and ratings scraped at each refresh.</p>
+            </div>
+          </div>
+          <div class="source-item">
+            <span class="source-tag">ATR</span>
+            <div>
+              <strong>At The Races</strong>
+              <p>greyhounds.attheraces.com — daily greyhound tips from the ATR racing team.</p>
+            </div>
+          </div>
+          <div class="source-item">
+            <span class="source-tag">RP</span>
+            <div>
+              <strong>Racing Post</strong>
+              <p>racingpost.com — NAP and selection tips from the Racing Post greyhound desk.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Badge explanations -->
+      <div class="info-block">
+        <h3 class="info-heading">Badges</h3>
+        <div class="badge-explain">
+          <div class="badge-explain-row">
+            <span class="badge badge-bestbet">⭐ Best Bet</span>
+            <p>Tipped by <strong>every active source</strong> (TF, ATR &amp; RP) <em>and</em> odds have
+              <strong>drifted above the morning price</strong> — consensus tipping plus value in
+              the market.</p>
+          </div>
+          <div class="badge-explain-row">
+            <span class="badge badge-tipped">✓ Tipped ×2</span>
+            <p>Tipped by <strong>2 or more sources</strong> but odds haven't drifted — still a
+              notable consensus selection.</p>
+          </div>
+          <div class="badge-explain-row">
+            <span class="badge badge-source">TF / ATR / RP</span>
+            <p>Shows which source(s) tipped this runner and their predicted finishing position (1st, 2nd, 3rd). A single-source tip carries no extra badge.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Odds columns explained -->
+      <div class="info-block">
+        <h3 class="info-heading">Odds columns</h3>
+        <p class="info-text">
+          <strong>Exchange</strong> — Betfair Exchange best-back price (decimal). <em>mkt:</em> is the
+          morning opening price. <span style="color:#27ae60">▲</span> drifted (potential value),
+          <span style="color:#e74c3c">▼</span> shortened.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Accuracy panel ──────────────────────────────────────────────────── -->
+  <div id="accuracy-panel" class="accuracy-panel hidden">
+    <div class="accuracy-inner">
+      <div class="accuracy-header">
+        <span class="accuracy-title">Tipster Accuracy</span>
+        <span id="accuracy-meta" class="accuracy-meta"></span>
+      </div>
+      <div id="accuracy-cards" class="accuracy-cards"></div>
+    </div>
+  </div>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <main id="app" class="app-main">
+    <div id="loading" class="state-card">
+      <div class="spinner"></div>
+      <p>Loading race data…</p>
+    </div>
+    <div id="error" class="state-card hidden">
+      <p class="error-icon">⚠️</p>
+      <p id="error-msg">Could not load race data.</p>
+      <button onclick="fetchRaces()">Retry</button>
+    </div>
+    <div id="races-container"></div>
+  </main>
+
+  <!-- ── Templates ───────────────────────────────────────────────────────── -->
+  <template id="tpl-venue">
+    <section class="venue-section">
+      <div class="venue-header">
+        <h2 class="venue-name"></h2>
+        <span class="venue-race-count"></span>
+      </div>
+      <div class="venue-races"></div>
+    </section>
+  </template>
+
+  <template id="tpl-race">
+    <article class="race-card">
+      <div class="race-header">
+        <div class="race-time-wrap">
+          <span class="race-time"></span>
+          <span class="race-grade"></span>
+        </div>
+        <div class="race-details">
+          <span class="race-distance"></span>
+          <span class="race-prize"></span>
+        </div>
+      </div>
+      <div class="race-table-wrap">
+        <table class="race-table">
+          <thead>
+            <tr>
+              <th class="col-trap">Trap</th>
+              <th class="col-dog">Dog</th>
+              <th class="col-trainer">Trainer</th>
+              <th class="col-form">Form</th>
+              <th class="col-odds">Exchange</th>
+              <th class="col-tips">Tips</th>
+            </tr>
+          </thead>
+          <tbody class="race-runners"></tbody>
+        </table>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

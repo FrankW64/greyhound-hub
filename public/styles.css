@@ -1,0 +1,881 @@
+/* ── Reset & base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0f1117;
+  --bg-card:     #1a1d27;
+  --bg-card2:    #20232f;
+  --bg-header:   #12151e;
+  --border:      #2a2d3a;
+  --text:        #e8eaf0;
+  --text-muted:  #8b8fa8;
+  --text-dim:    #5a5e72;
+  --accent:      #4f8cff;
+  --green:       #27ae60;
+  --gold:        #f0a500;
+  --gold-light:  #ffd166;
+  --red:         #e74c3c;
+  --radius:      10px;
+  --shadow:      0 2px 12px rgba(0,0,0,0.4);
+
+  /* UK trap colours */
+  --t1-bg: #cc0000; --t1-fg: #fff;
+  --t2-bg: #1a47a0; --t2-fg: #fff;
+  --t3-bg: #f0f0f0; --t3-fg: #222;
+  --t4-bg: #1a1a1a; --t4-fg: #fff;
+  --t5-bg: #e87c00; --t5-fg: #fff;
+  --t6-bg: #1a1a1a; --t6-fg: #fff;
+}
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.site-header {
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+}
+
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-logo { height: 44px; width: auto; display: block; }
+
+.header-title h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.header-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mock-badge {
+  background: #7c3aed22;
+  border: 1px solid #7c3aed66;
+  color: #a78bfa;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.refresh-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.refresh-bar-wrap {
+  width: 80px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.refresh-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  width: 100%;
+  transform-origin: left;
+  transition: transform 1s linear;
+}
+
+.refresh-countdown {
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── API status indicators ───────────────────────────────────────────────── */
+.api-status-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.api-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);   /* grey = not configured */
+  flex-shrink: 0;
+  transition: background 0.4s;
+}
+
+.api-status-item.connected .api-dot    { background: #27ae60; }
+.api-status-item.error     .api-dot    { background: #e74c3c; }
+.api-status-item.connected .api-label  { color: var(--text-muted); }
+.api-status-item.error     .api-label  { color: #e74c3c; }
+
+/* ── Info panel ──────────────────────────────────────────────────────────── */
+.info-panel {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 20px;
+}
+
+.info-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: auto 1fr 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.info-heading {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+/* Trap colour key */
+.trap-key {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Tip sources */
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.source-tag {
+  flex-shrink: 0;
+  background: #ffffff0f;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-top: 1px;
+  letter-spacing: 0.04em;
+}
+
+.source-item strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.source-item p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Badge explanations */
+.badge-explain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.badge-explain-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.badge-explain-row .badge {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.badge-explain-row p {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.badge-explain-row p strong { color: var(--text); }
+.badge-explain-row p em { color: var(--text-muted); font-style: normal; font-weight: 600; }
+
+/* Odds info */
+.info-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.info-text strong { color: var(--text); }
+
+/* Responsive collapse */
+@media (max-width: 900px) {
+  .info-inner {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 580px) {
+  .info-inner {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+/* ── Main ────────────────────────────────────────────────────────────────── */
+.app-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ── State cards (loading / error) ──────────────────────────────────────── */
+.state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.state-card button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.state-card button:hover { opacity: 0.88; }
+
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-icon { font-size: 2.5rem; }
+
+/* ── Venue sections ──────────────────────────────────────────────────────── */
+.venue-section { margin-bottom: 36px; }
+
+.venue-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.venue-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.2px;
+}
+
+.venue-race-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+.venue-races {
+  display: grid;
+  gap: 14px;
+}
+
+/* ── Race card ───────────────────────────────────────────────────────────── */
+.race-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s;
+}
+
+.race-card:hover { border-color: #3a3d4a; }
+
+.race-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-card2);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.race-time-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.race-time {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.race-grade {
+  font-size: 0.72rem;
+  background: #ffffff14;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+.race-details {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.race-prize { color: var(--gold); font-weight: 600; }
+
+/* ── Race table ──────────────────────────────────────────────────────────── */
+.race-table-wrap { overflow-x: auto; }
+
+.race-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.race-table thead th {
+  padding: 7px 12px;
+  text-align: left;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.race-table tbody tr {
+  border-bottom: 1px solid #1e2130;
+  transition: background 0.15s;
+}
+
+.race-table tbody tr:last-child { border-bottom: none; }
+.race-table tbody tr:hover { background: #ffffff05; }
+
+.race-table tbody tr.is-best-bet {
+  background: #f0a50008;
+  border-left: 3px solid var(--gold);
+}
+
+.race-table tbody tr.is-tipped:not(.is-best-bet) {
+  background: #27ae6008;
+  border-left: 3px solid var(--green);
+}
+
+.race-table td {
+  padding: 9px 12px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ── Columns ─────────────────────────────────────────────────────────────── */
+.col-trap    { width: 54px; }
+.col-dog     { width: auto; min-width: 130px; white-space: normal !important; }
+.col-trainer { min-width: 100px; color: var(--text-muted); }
+.col-form    { font-variant-numeric: tabular-nums; color: var(--text-muted); letter-spacing: 0.04em; }
+.col-odds    { min-width: 90px; }
+.col-bookie  { min-width: 110px; }
+.col-tips    { min-width: 110px; }
+
+/* ── Trap badges ─────────────────────────────────────────────────────────── */
+.trap-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.15);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+.t1 { background: var(--t1-bg); color: var(--t1-fg); }
+.t2 { background: var(--t2-bg); color: var(--t2-fg); }
+.t3 { background: var(--t3-bg); color: var(--t3-fg); border-color: #ccc; }
+.t4 { background: var(--t4-bg); color: var(--t4-fg); border-color: #555; }
+.t5 { background: var(--t5-bg); color: var(--t5-fg); }
+
+/* Trap 6 — black with white diagonal stripes */
+.t6 {
+  background: repeating-linear-gradient(
+    45deg,
+    #1a1a1a 0px, #1a1a1a 5px,
+    #f0f0f0 5px, #f0f0f0 10px
+  );
+  color: #fff;
+  text-shadow: 0 0 3px #000;
+  border-color: #888;
+}
+
+/* ── Dog name cell ───────────────────────────────────────────────────────── */
+.dog-name { font-weight: 600; color: var(--text); }
+
+/* ── Odds display ────────────────────────────────────────────────────────── */
+.odds-wrap { display: flex; flex-direction: column; gap: 1px; }
+
+.odds-current {
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.odds-current.drifted  { color: #27ae60; }
+.odds-current.shortened { color: #e74c3c; }
+.odds-current.stable   { color: var(--text); }
+
+.odds-open {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.odds-direction {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.odds-direction.up   { color: #27ae60; }  /* price drifted = longer odds, potential value */
+.odds-direction.down { color: #e74c3c; }  /* price shortened = market moved against */
+
+/* ── Best Bookie cell ────────────────────────────────────────────────────── */
+.bookie-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bookie-price {
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.bookie-name {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* Shown when Betfair exchange beats every bookie */
+.exch-better-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: #4f8cff18;
+  border: 1px solid #4f8cff55;
+  color: var(--accent);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badges { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge-bestbet {
+  background: #f0a50018;
+  border: 1px solid #f0a50066;
+  color: var(--gold-light);
+}
+
+.badge-tipped {
+  background: #27ae6018;
+  border: 1px solid #27ae6066;
+  color: #6fcf97;
+}
+
+.badge-source {
+  background: #ffffff0a;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.62rem;
+}
+
+.badge-ew {
+  background: #0e9f9f18;
+  border: 1px solid #0e9f9f66;
+  color: #4dd0d0;
+}
+
+/* ── Per-source position pills ───────────────────────────────────────────── */
+
+.tip-positions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.pos-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.62rem;
+  background: #ffffff08;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.pos-src {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.pos-ord.pos-1 { color: #27ae60; }
+.pos-ord.pos-2 { color: #f39c12; }
+.pos-ord.pos-3 { color: #e67e22; }
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 800px) {
+  .col-trainer,
+  .col-form { display: none; }
+  .race-table thead th.col-trainer,
+  .race-table thead th.col-form { display: none; }
+}
+
+@media (max-width: 700px) {
+  .header-title h1   { font-size: 1.1rem; }
+  .header-sub        { display: none; }
+  .refresh-bar-wrap  { display: none; }
+  .api-status-wrap   { display: none; }
+  .race-table td     { padding: 8px 8px; }
+}
+
+@media (max-width: 480px) {
+  .app-main { padding: 16px 10px 32px; }
+  .race-table { font-size: 0.8rem; }
+  .trap-badge { width: 24px; height: 24px; font-size: 0.72rem; }
+}
+
+/* ── Result banner ───────────────────────────────────────────────────────── */
+
+.race-result-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #27ae6012;
+  border-top: 1px solid #27ae6033;
+  border-bottom: 1px solid #27ae6033;
+  flex-wrap: wrap;
+}
+
+.result-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.result-trap {
+  width: 22px !important;
+  height: 22px !important;
+  font-size: 0.65rem !important;
+  border-radius: 3px !important;
+}
+
+.result-winner {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.result-flag {
+  font-size: 0.65rem;
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.result-bestbet {
+  background: #f0a50018;
+  border: 1px solid #f0a50055;
+  color: var(--gold-light);
+}
+
+.result-tipped {
+  background: #27ae6018;
+  border: 1px solid #27ae6055;
+  color: #6fcf97;
+}
+
+.result-time {
+  margin-left: auto;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+/* ── Trap bias chart ─────────────────────────────────────────────────────── */
+
+.trap-bias-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px 6px;
+  border-top: 1px solid var(--border);
+  background: #ffffff03;
+}
+
+.tb-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.tb-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.tb-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.tb-pct {
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tb-strong { color: var(--green); }
+.tb-weak   { color: var(--red);   }
+.tb-fair   { color: var(--text-dim); }
+
+.tb-bar {
+  width: 22px;
+  border-radius: 2px 2px 0 0;
+  min-height: 3px;
+}
+
+/* Use trap jacket colours for bars; adjust low-contrast traps */
+.tb-bar.t1 { background: var(--t1-bg); }
+.tb-bar.t2 { background: var(--t2-bg); }
+.tb-bar.t3 { background: #909090; }    /* white trap → grey bar on dark bg */
+.tb-bar.t4 { background: #555; }       /* black trap → mid-grey bar */
+.tb-bar.t5 { background: var(--t5-bg); }
+.tb-bar.t6 { background: #666; }       /* b/w stripe → dark-grey bar */
+
+.tb-trap {
+  width: 22px !important;
+  height: 22px !important;
+  font-size: 0.65rem !important;
+  border-radius: 3px !important;
+}
+
+/* ── Accuracy panel ───────────────────────────────────────────────────────── */
+
+.accuracy-panel {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+}
+
+.accuracy-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.accuracy-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.accuracy-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.accuracy-meta {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.accuracy-cards {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.accuracy-divider {
+  width: 1px;
+  background: var(--border);
+  align-self: stretch;
+  min-height: 40px;
+}
+
+.ac-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-width: 72px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ac-card.ac-highlight {
+  border-color: #f0a50055;
+  background: #f0a50008;
+}
+
+.ac-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.ac-rate {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.ac-card.ac-highlight .ac-rate {
+  color: var(--gold-light);
+}
+
+.ac-count {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+}
+
+.ac-no-data {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+@media (max-width: 600px) {
+  .accuracy-panel { padding: 10px 12px; }
+  .ac-card { min-width: 60px; padding: 5px 8px; }
+  .ac-rate { font-size: 0.9rem; }
+}
