@@ -26,6 +26,7 @@ class DataManager {
 
     this.betfair        = null;
     this.useScraperMode = false;
+    this._refreshing    = false;  // guard against concurrent refreshes
 
     // Persists the first-seen Betfair price as morning odds across refreshes
     this._morningOddsCache = {};
@@ -87,6 +88,11 @@ class DataManager {
   // ── Main refresh cycle ──────────────────────────────────────────────────────
 
   async refresh() {
+    if (this._refreshing) {
+      console.log('[DataManager] Refresh already in progress — skipping');
+      return;
+    }
+    this._refreshing = true;
     console.log('[DataManager] Refreshing…');
 
     try {
@@ -132,6 +138,8 @@ class DataManager {
     } catch (err) {
       console.error('[DataManager] Refresh failed:', err.message);
       // Keep existing data so the UI stays populated
+    } finally {
+      this._refreshing = false;
     }
   }
 
