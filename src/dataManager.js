@@ -16,7 +16,7 @@ const BetfairClient          = require('./betfair');
 const RacingApiClient        = require('./racingApi');
 const OddsApiClient          = require('./oddsApi');
 const { fetchAllTips }       = require('./scraper');
-const { fetchRaceCards }     = require('./racecardScraper');
+const { fetchRaceCards, fetchTodaysResults } = require('./racecardScraper');
 const ResultsTracker         = require('./resultsTracker');
 
 class DataManager {

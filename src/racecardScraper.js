@@ -1,24 +1,28 @@
 'use strict';
 
 /**
- * Race card scraper — fetches today's UK greyhound race cards from public sources.
+ * Race card scraper — fetches today's UK greyhound race cards.
  *
- * Returns an array of race objects in the same shape as mock data:
+ * Sources (tried in order):
+ *   1. Timeform  — https://www.timeform.com/greyhound-racing/racecards
+ *      Full race cards with all 6 runners, trap images, dog name links,
+ *      trainer text. Server-side rendered HTML — no JS required.
+ *
+ *   2. GBGB API  — http://api.gbgb.org.uk/api/results?raceDate=TODAY
+ *      Returns settled results for today (only after races run).
+ *      Used as a supplementary source for results tracking, not pre-race cards.
+ *
+ * Returns an array of race objects:
  *   { id, venue, time, date, distance, grade, prize, runners[] }
  *
  * Each runner:
  *   { trap, name, trainer, form, openingOdds: null, currentOdds: null }
- *
- * Sources tried in order (first with ≥3 races wins):
- *   1. GBGB.org.uk — official UK governing body
- *   2. TheGreyhoundRecorder.co.uk — independent race cards
- *   3. RacingPost.com/greyhounds/cards — Next.js JSON blob fallback
  */
 
 const axios   = require('axios');
 const cheerio = require('cheerio');
 
-// ── Shared HTTP config ────────────────────────────────────────────────────────
+// ── HTTP config ───────────────────────────────────────────────────────────────
 
 const HEADERS = {
   'User-Agent':
@@ -39,438 +43,356 @@ async function fetchHtml(url) {
   return data;
 }
 
-// ── Source 1: GBGB.org.uk ─────────────────────────────────────────────────────
+async function fetchJson(url) {
+  const { data } = await axios.get(url, {
+    headers: { ...HEADERS, 'Accept': 'application/json' },
+    timeout: 10000,
+  });
+  return data;
+}
 
-async function scrapeGBGB() {
+// ── Source 1: Timeform race card listing ──────────────────────────────────────
+//
+// Page structure (server-side rendered):
+//   Venues appear as headings; each race links to its full card at:
+//     /greyhound-racing/racecards/[venue]/[HHMM]/[YYYY-MM-DD]/[raceId]
+//   Individual race card pages contain a runners table with:
+//     - Trap:    <img src="...trap-X.png">
+//     - Dog:     <a href="/greyhound-racing/greyhound-form/...">Name</a>
+//     - Trainer: plain text in table cell
+//     - Form:    plain text (row header or cell), e.g. "2TTT4"
+
+async function scrapeTimeformCards() {
   const races = [];
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
   try {
-    const url  = `https://www.gbgb.org.uk/race-cards/?date=${today}`;
+    const listHtml = await fetchHtml('https://www.timeform.com/greyhound-racing/racecards');
+    const $list    = cheerio.load(listHtml);
+
+    // ── Step 1: collect all race card URLs from the listing page ─────────────
+    // URL pattern: /greyhound-racing/racecards/[venue-slug]/[HHMM]/[date]/[id]
+    const raceLinks = [];
+    $list('a[href*="/greyhound-racing/racecards/"]').each((_, el) => {
+      const href  = $list(el).attr('href') || '';
+      // Match: /greyhound-racing/racecards/venue/HHMM/YYYY-MM-DD/id
+      const match = href.match(
+        /\/greyhound-racing\/racecards\/([^/]+)\/(\d{3,4})\/(\d{4}-\d{2}-\d{2})\/(\d+)/
+      );
+      if (!match) return;
+      const [, venueSlug, timePart, date, raceId] = match;
+      if (date !== today) return; // only today's cards
+
+      const time = `${timePart.padStart(4, '0').slice(0, 2)}:${timePart.padStart(4, '0').slice(2)}`;
+      const venue = slugToVenue(venueSlug);
+      if (!venue) return;
+
+      const fullUrl = `https://www.timeform.com${href}`;
+      // Deduplicate by raceId
+      if (!raceLinks.find(r => r.raceId === raceId)) {
+        raceLinks.push({ url: fullUrl, venue, time, date, raceId });
+      }
+    });
+
+    // ── Step 2: also try to parse races directly from the listing page ───────
+    // The listing page often includes runner-level data in expandable sections
+    const listingRaces = parseTimeformListing($list, today);
+    for (const r of listingRaces) {
+      if (!races.find(x => x.id === r.id)) races.push(r);
+    }
+
+    console.log(`[RacecardScraper] Timeform listing: ${raceLinks.length} race links, ${listingRaces.length} from inline parse`);
+
+    // ── Step 3: fetch individual race card pages for any races not yet parsed ─
+    // Limit concurrent fetches to avoid hammering the server
+    const missing = raceLinks.filter(l => !races.find(r => r.id === `TF-${l.raceId}`));
+    const BATCH   = 4;
+
+    for (let i = 0; i < missing.length; i += BATCH) {
+      const batch = missing.slice(i, i + BATCH);
+      const fetched = await Promise.allSettled(
+        batch.map(link => fetchTimeformRace(link))
+      );
+      for (const result of fetched) {
+        if (result.status === 'fulfilled' && result.value) {
+          races.push(result.value);
+        }
+      }
+      // Small polite delay between batches
+      if (i + BATCH < missing.length) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    console.log(`[RacecardScraper] Timeform total: ${races.length} races`);
+  } catch (err) {
+    console.warn(`[RacecardScraper] Timeform failed: ${err.message}`);
+  }
+
+  return races;
+}
+
+/**
+ * Parse race and runner data that Timeform sometimes embeds inline
+ * in the main listing page (expandable race sections).
+ */
+function parseTimeformListing($, today) {
+  const races = [];
+
+  // Timeform groups races by venue in labelled sections
+  // Strategy: look for any element that contains a trap image, dog link, and is
+  // inside a block that also has a time link matching the race URL pattern
+  $('a[href*="/greyhound-racing/racecards/"]').each((_, linkEl) => {
+    const href  = $(linkEl).attr('href') || '';
+    const match = href.match(
+      /\/greyhound-racing\/racecards\/([^/]+)\/(\d{3,4})\/(\d{4}-\d{2}-\d{2})\/(\d+)/
+    );
+    if (!match) return;
+    const [, venueSlug, timePart, date, raceId] = match;
+    if (date !== today) return;
+
+    const time  = `${timePart.padStart(4, '0').slice(0, 2)}:${timePart.padStart(4, '0').slice(2)}`;
+    const venue = slugToVenue(venueSlug);
+    if (!venue) return;
+
+    // Look for runner rows within the same parent block as this link
+    const container = $(linkEl).closest('section, article, div[class], li').first();
+    if (!container.length) return;
+
+    const runners = parseRunnerBlock($, container);
+    if (runners.length < 2) return;
+
+    const raceText = container.text();
+    const race = {
+      id:       `TF-${raceId}`,
+      venue,
+      time,
+      date,
+      distance: extractDistance(raceText),
+      grade:    extractGrade(raceText),
+      prize:    extractPrize(raceText),
+      runners,
+    };
+
+    if (!races.find(r => r.id === race.id)) races.push(race);
+  });
+
+  return races;
+}
+
+/**
+ * Fetch a single Timeform race card page and parse its runners.
+ */
+async function fetchTimeformRace({ url, venue, time, date, raceId }) {
+  try {
     const html = await fetchHtml(url);
     const $    = cheerio.load(html);
 
-    // Strategy 1 — structured meeting/race containers
-    $('[class*="meeting"], [class*="race-meeting"], [class*="racecard-meeting"]').each((_, meetingEl) => {
-      const meeting   = $(meetingEl);
-      const venueText = normalise(
-        meeting.find('[class*="venue"], [class*="meeting-name"], [class*="location"], h2, h3').first().text()
-      );
-      const venue = matchVenue(venueText);
-      if (!venue) return;
+    // Get distance / grade / prize from page header
+    const headerText = $('h1, [class*="racecard-header"], [class*="race-header"], [class*="race-title"]')
+      .first().text();
+    const pageText   = $('body').text();
 
-      meeting.find('[class*="race-card__race"], [class*="race-row"], [class*="racecard-race"]').each((_, raceEl) => {
-        const raceDiv = $(raceEl);
-        const time    = extractTime(
-          raceDiv.find('[class*="time"], [class*="race-time"]').first().text() || raceDiv.text()
-        );
-        if (!time) return;
+    const runners = parseRunnerBlock($, $('body'));
+    if (runners.length < 2) return null;
 
-        const race = buildRaceShell(venue, time, today, raceDiv);
-
-        raceDiv.find('[class*="runner"], tr').each((_, runnerEl) => {
-          const runner = parseRunnerRow($(runnerEl));
-          if (runner) race.runners.push(runner);
-        });
-
-        if (race.runners.length >= 2) races.push(race);
-      });
-    });
-
-    // Strategy 2 — flat table rows with venue/time headers
-    if (!races.length) {
-      let currentVenue = '';
-      let currentRace  = null;
-
-      $('table tbody tr, [class*="card-row"]').each((_, el) => {
-        const row  = $(el);
-        const text = row.text();
-
-        // Venue header row (usually a single colspan cell)
-        const detectedVenue = matchVenue(text);
-        if (detectedVenue && row.find('td').length <= 2) {
-          if (currentRace && currentRace.runners.length >= 2) races.push(currentRace);
-          currentVenue = detectedVenue;
-          currentRace  = null;
-          return;
-        }
-
-        // Race header row (contains a time)
-        const time = extractTime(text);
-        if (time && currentVenue) {
-          if (currentRace && currentRace.runners.length >= 2) races.push(currentRace);
-          currentRace = buildRaceShell(currentVenue, time, today, row);
-          return;
-        }
-
-        // Runner row
-        if (currentRace) {
-          const runner = parseRunnerCells(row.find('td'));
-          if (runner) currentRace.runners.push(runner);
-        }
-      });
-
-      if (currentRace && currentRace.runners.length >= 2) races.push(currentRace);
-    }
-
-    // Strategy 3 — embedded JSON (some GBGB pages use script data)
-    if (!races.length) {
-      $('script').each((_, el) => {
-        const content = $(el).html() || '';
-        if (!content.includes('raceCard') && !content.includes('runners')) return;
-        try {
-          // Look for JSON arrays/objects in script blocks
-          const match = content.match(/(?:var|const|let)\s+\w+\s*=\s*(\[[\s\S]*?\]);/) ||
-                        content.match(/(?:var|const|let)\s+\w+\s*=\s*(\{[\s\S]*?\});/);
-          if (match) {
-            const json     = JSON.parse(match[1]);
-            const extracted = extractRacesFromJson(json, today);
-            races.push(...extracted);
-          }
-        } catch (_) {}
-      });
-    }
-
-    console.log(`[RacecardScraper] GBGB: found ${races.length} races`);
+    return {
+      id:       `TF-${raceId}`,
+      venue,
+      time,
+      date,
+      distance: extractDistance(headerText) || extractDistance(pageText),
+      grade:    extractGrade(headerText)    || extractGrade(pageText),
+      prize:    extractPrize(headerText)    || extractPrize(pageText),
+      runners,
+    };
   } catch (err) {
-    console.warn(`[RacecardScraper] GBGB failed: ${err.message}`);
+    console.warn(`[RacecardScraper] Timeform race ${raceId} failed: ${err.message}`);
+    return null;
   }
-
-  return races;
 }
 
-// ── Source 2: TheGreyhoundRecorder.co.uk ─────────────────────────────────────
+/**
+ * Parse runner rows from any Cheerio container using Timeform's known structure:
+ *   - Trap:    <img src="...trap-X.png">
+ *   - Dog:     <a href="/greyhound-racing/greyhound-form/...">Name</a>
+ *   - Trainer: text in adjacent cell (often includes strike rate in parens)
+ *   - Form:    numeric/letter string that looks like form, e.g. "2TTT4"
+ */
+function parseRunnerBlock($, container) {
+  const runners = [];
+  const seen    = new Set();
 
-async function scrapeGreyhoundRecorder() {
-  const races = [];
-  const today = new Date().toISOString().split('T')[0];
+  // Find all trap images — each one anchors a runner row
+  container.find('img[src*="trap-"]').each((_, img) => {
+    const src  = $(img).attr('src') || '';
+    const trap = parseInt((src.match(/trap-(\d)/) || [])[1], 10);
+    if (!trap || trap < 1 || trap > 6) return;
 
-  try {
-    const html = await fetchHtml('https://www.thegreyhoundrecorder.co.uk/race-cards/');
-    const $    = cheerio.load(html);
+    // Walk up to find the containing row or block for this runner
+    const row = $(img).closest('tr, li, [class*="runner"], [class*="dog"], div').first();
+    if (!row.length) return;
 
-    $('[class*="meeting"], [class*="venue-block"], .race-meeting, [class*="racecards-meeting"]').each((_, meetingEl) => {
-      const meeting   = $(meetingEl);
-      const venueText = normalise(
-        meeting.find('h2, h3, [class*="venue"], [class*="meeting-title"], [class*="meeting-name"]').first().text()
-      );
-      const venue = matchVenue(venueText);
-      if (!venue) return;
-
-      meeting.find('[class*="race"], [class*="race-row"], [class*="racecard-race"]').each((_, raceEl) => {
-        const raceDiv = $(raceEl);
-        const time    = extractTime(
-          raceDiv.find('[class*="time"], [class*="race-time"]').first().text() || raceDiv.text()
-        );
-        if (!time) return;
-
-        const race = buildRaceShell(venue, time, today, raceDiv);
-
-        raceDiv.find('tr, [class*="runner"]').each((_, runnerEl) => {
-          const r      = $(runnerEl);
-          const cells  = r.find('td');
-          const runner = cells.length >= 2
-            ? parseRunnerCells(cells)
-            : parseRunnerRow(r);
-          if (runner) race.runners.push(runner);
-        });
-
-        if (race.runners.length >= 2) races.push(race);
-      });
-    });
-
-    // Fallback: look for any standard race-card tables
-    if (!races.length) {
-      $('table').each((_, tableEl) => {
-        const tbl = $(tableEl);
-        // Detect if this table looks like a race card (has trap numbers 1-6)
-        const firstColNums = tbl.find('tbody tr').map((_, tr) =>
-          parseInt($(tr).find('td').first().text(), 10)
-        ).get().filter(n => n >= 1 && n <= 6);
-
-        if (firstColNums.length < 2) return;
-
-        // Try to find venue and time from nearest heading
-        const heading = tbl.prev('h2, h3, h4').first().text() ||
-                        tbl.closest('section, article, div').find('h2, h3, h4').first().text();
-        const venue   = matchVenue(heading);
-        const time    = extractTime(heading) || extractTime(tbl.closest('section, article').find('[class*="time"]').first().text());
-
-        if (!venue || !time) return;
-
-        const race = buildRaceShell(venue, time, today, tbl);
-
-        tbl.find('tbody tr').each((_, tr) => {
-          const runner = parseRunnerCells($(tr).find('td'));
-          if (runner) race.runners.push(runner);
-        });
-
-        if (race.runners.length >= 2) races.push(race);
+    // Dog name: nearest link to /greyhound-form/
+    let name = normalise(
+      row.find('a[href*="/greyhound-racing/greyhound-form/"]').first().text()
+    );
+    // Fallback: any link text that looks like a dog name
+    if (!name) {
+      row.find('a').each((_, a) => {
+        const t = normalise($(a).text());
+        if (looksLikeDogName(t)) { name = t; return false; }
       });
     }
+    if (!name || name.length < 3) return;
+    if (seen.has(name.toLowerCase())) return;
+    seen.add(name.toLowerCase());
 
-    console.log(`[RacecardScraper] GreyhoundRecorder: found ${races.length} races`);
-  } catch (err) {
-    console.warn(`[RacecardScraper] GreyhoundRecorder failed: ${err.message}`);
-  }
+    // Trainer: text in a td/cell that isn't the name and contains a letter
+    let trainer = '';
+    row.find('td, [class*="trainer"]').each((_, cell) => {
+      const t = normalise($(cell).text().replace(/\(\d+(\.\d+)?%\)/, '').trim());
+      if (t && t !== name && /[A-Za-z]/.test(t) && t.length > 2 && t.length < 60) {
+        trainer = t;
+        return false;
+      }
+    });
 
-  return races;
+    // Form: a string of digits/letters that looks like recent form
+    let form = '';
+    row.find('td, [class*="form"]').each((_, cell) => {
+      const t = normalise($(cell).text());
+      if (/^[0-9A-Za-zT\-\.\/]+$/.test(t) && t.length >= 3 && t.length <= 12 &&
+          /\d/.test(t) && t !== String(trap)) {
+        form = t;
+        return false;
+      }
+    });
+
+    runners.push({ trap, name, trainer, form, openingOdds: null, currentOdds: null });
+  });
+
+  // Sort by trap number
+  runners.sort((a, b) => a.trap - b.trap);
+  return runners;
 }
 
-// ── Source 3: Racing Post greyhound cards ─────────────────────────────────────
+// ── Source 2: GBGB API — today's results (for results tracker) ────────────────
+//
+// Note: this returns settled races only (after they've run).
+// It is NOT a race card source — it's used to get today's results.
 
-async function scrapeRacingPostCards() {
-  const races = [];
-  const today = new Date().toISOString().split('T')[0];
-
+async function fetchGBGBResults(date) {
+  const results = [];
   try {
-    const html = await fetchHtml('https://www.racingpost.com/greyhounds/cards/today');
-    const $    = cheerio.load(html);
+    // GBGB date format: MM/DD/YYYY in response but filter uses YYYY-MM-DD
+    const today = date || new Date().toISOString().split('T')[0];
+    const url   = `http://api.gbgb.org.uk/api/results?raceDate=${today}&pageSize=200`;
+    const data  = await fetchJson(url);
 
-    // Racing Post uses Next.js — __NEXT_DATA__ JSON blob is the most reliable
-    let parsed = false;
-    $('script#__NEXT_DATA__').each((_, el) => {
-      try {
-        const json      = JSON.parse($(el).html());
-        const extracted = extractRacesFromJson(json, today);
-        if (extracted.length) {
-          races.push(...extracted);
-          parsed = true;
-        }
-      } catch (_) {}
-    });
-
-    // HTML fallback
-    if (!parsed) {
-      $('[class*="CourseHeader"], [class*="course-header"], [class*="CardWrapper"]').each((_, cardEl) => {
-        const card      = $(cardEl);
-        const venueText = normalise(card.find('[class*="courseName"], [class*="venue"], h2').first().text());
-        const venue     = matchVenue(venueText);
-        if (!venue) return;
-
-        card.find('[class*="RaceRow"], [class*="race-row"], [class*="RaceCard"]').each((_, raceEl) => {
-          const raceDiv = $(raceEl);
-          const time    = extractTime(
-            raceDiv.find('[class*="raceTime"], [class*="time"]').first().text() || raceDiv.text()
-          );
-          if (!time) return;
-
-          const race = buildRaceShell(venue, time, today, raceDiv);
-
-          raceDiv.find('[class*="RunnerRow"], [class*="runner-row"], tr').each((_, runnerEl) => {
-            const r      = $(runnerEl);
-            const cells  = r.find('td');
-            const runner = cells.length >= 2 ? parseRunnerCells(cells) : parseRunnerRow(r);
-            if (runner) race.runners.push(runner);
-          });
-
-          if (race.runners.length >= 2) races.push(race);
-        });
+    for (const item of (data.items || [])) {
+      if (item.resultPosition !== 1) continue; // only winners
+      results.push({
+        raceId:    String(item.raceId),
+        meetingId: String(item.meetingId),
+        venue:     item.trackName,
+        time:      formatTime(item.raceTime),
+        date:      parseGBGBDate(item.raceDate),
+        grade:     item.raceClass,
+        distance:  item.raceDistance ? `${item.raceDistance}m` : '',
+        winner: {
+          trap:    parseInt(item.trapNumber, 10),
+          name:    item.dogName,
+          trainer: item.trainerName,
+        },
       });
     }
-
-    console.log(`[RacecardScraper] RacingPost: found ${races.length} races`);
+    console.log(`[RacecardScraper] GBGB API: ${results.length} settled results for ${today}`);
   } catch (err) {
-    console.warn(`[RacecardScraper] RacingPost failed: ${err.message}`);
+    console.warn(`[RacecardScraper] GBGB API failed: ${err.message}`);
   }
-
-  return races;
+  return results;
 }
 
 // ── Aggregator ────────────────────────────────────────────────────────────────
 
-/**
- * Fetch today's race cards.  Each source is tried in parallel; the first that
- * returns ≥3 races is used.  If none meet that threshold, results are merged.
- */
 async function fetchRaceCards() {
-  const results = await Promise.allSettled([
-    scrapeGBGB(),
-    scrapeGreyhoundRecorder(),
-    scrapeRacingPostCards(),
-  ]);
+  // Primary source: Timeform
+  const races = await scrapeTimeformCards();
 
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.length >= 3) {
-      console.log(`[RacecardScraper] Using primary result: ${result.value.length} races`);
-      return deduplicateRaces(result.value);
-    }
+  if (races.length > 0) {
+    return deduplicateRaces(races);
   }
 
-  // Merge all partial results
-  const all = [];
-  for (const result of results) {
-    if (result.status === 'fulfilled') all.push(...result.value);
-  }
-  const merged = deduplicateRaces(all);
-  console.log(`[RacecardScraper] Merged from all sources: ${merged.length} races`);
-  return merged;
+  // If Timeform returns nothing (e.g. late at night, off-season), return empty
+  // The DataManager will keep the last known race set
+  console.warn('[RacecardScraper] No races found from any source');
+  return [];
 }
 
-// ── Venue data ────────────────────────────────────────────────────────────────
+/**
+ * Fetch today's settled results from GBGB API.
+ * Used by DataManager for results tracking — separate from race cards.
+ */
+async function fetchTodaysResults() {
+  const today = new Date().toISOString().split('T')[0];
+  return fetchGBGBResults(today);
+}
 
-const UK_VENUES = [
-  'Romford', 'Hove', 'Belle Vue', 'Nottingham', 'Swindon', 'Monmore',
-  'Oxford', 'Perry Barr', 'Poole', 'Sheffield', 'Towcester', 'Newcastle',
-  'Doncaster', 'Yarmouth', 'Kinsley', 'Coventry', 'Henlow', 'Peterborough',
-  'Harlow', 'Walthamstow', 'Birmingham', 'Crayford', 'Wimbledon',
-  'Central Park', 'Dunstall Park', 'Pelaw Grange', 'Suffolk Downs',
-  'The Valley', 'Sunderland',
-];
+// ── Venue slug mapping ────────────────────────────────────────────────────────
 
-const VENUE_CODES = {
-  'Romford':       'ROM', 'Hove':          'HOV', 'Belle Vue':     'BEL',
-  'Nottingham':    'NOT', 'Swindon':        'SWI', 'Monmore':       'MON',
-  'Oxford':        'OXF', 'Perry Barr':     'PER', 'Poole':         'POO',
-  'Sheffield':     'SHE', 'Towcester':      'TOW', 'Newcastle':     'NEW',
-  'Doncaster':     'DON', 'Yarmouth':       'YAR', 'Kinsley':       'KIN',
-  'Coventry':      'COV', 'Henlow':         'HEN', 'Peterborough':  'PET',
-  'Harlow':        'HAR', 'Crayford':       'CRA', 'Wimbledon':     'WIM',
-  'Central Park':  'CEN', 'Dunstall Park':  'DUN', 'Pelaw Grange':  'PEL',
-  'Suffolk Downs': 'SUF', 'The Valley':     'VAL', 'Sunderland':    'SUN',
+// Timeform URL slugs → display names
+const SLUG_TO_VENUE = {
+  'romford':        'Romford',
+  'hove':           'Hove',
+  'belle-vue':      'Belle Vue',
+  'nottingham':     'Nottingham',
+  'swindon':        'Swindon',
+  'monmore':        'Monmore',
+  'oxford':         'Oxford',
+  'perry-barr':     'Perry Barr',
+  'poole':          'Poole',
+  'sheffield':      'Sheffield',
+  'towcester':      'Towcester',
+  'newcastle':      'Newcastle',
+  'doncaster':      'Doncaster',
+  'yarmouth':       'Yarmouth',
+  'kinsley':        'Kinsley',
+  'coventry':       'Coventry',
+  'henlow':         'Henlow',
+  'peterborough':   'Peterborough',
+  'harlow':         'Harlow',
+  'crayford':       'Crayford',
+  'wimbledon':      'Wimbledon',
+  'central-park':   'Central Park',
+  'dunstall-park':  'Dunstall Park',
+  'pelaw-grange':   'Pelaw Grange',
+  'suffolk-downs':  'Suffolk Downs',
+  'the-valley':     'The Valley',
+  'valley':         'The Valley',
+  'sunderland':     'Sunderland',
 };
 
-function matchVenue(text) {
-  const t = (text || '').toLowerCase();
-  for (const v of UK_VENUES) {
-    if (t.includes(v.toLowerCase())) return v;
-  }
-  return '';
+function slugToVenue(slug) {
+  return SLUG_TO_VENUE[slug.toLowerCase()] || '';
 }
 
-function venueCode(venue) {
-  return VENUE_CODES[venue] || venue.slice(0, 3).toUpperCase();
-}
-
-// ── Row parsing helpers ───────────────────────────────────────────────────────
-
-/**
- * Build the shell of a race object from a Cheerio element that contains
- * distance/grade/prize metadata.
- */
-function buildRaceShell(venue, time, date, $el) {
-  const text = $el.text ? $el.text() : '';
-  return {
-    id:       `${venueCode(venue)}-${time.replace(':', '')}`,
-    venue,
-    time,
-    date,
-    distance: normalise($el.find ? $el.find('[class*="dist"]').first().text() : '') ||
-              extractDistance(text),
-    grade:    normalise($el.find ? $el.find('[class*="grade"], [class*="class"]').first().text() : '') ||
-              extractGrade(text),
-    prize:    normalise($el.find ? $el.find('[class*="prize"]').first().text() : '') ||
-              extractPrize(text),
-    runners:  [],
-  };
-}
-
-/**
- * Parse a runner from a <tr> element using class-based selectors.
- */
-function parseRunnerRow($el) {
-  const trap = parseInt(
-    $el.find('[class*="trap"], [class*="cloth"], [class*="number"]').first().text(), 10
-  );
-  const name = normalise(
-    $el.find('[class*="dog"], [class*="name"], [class*="runner-name"], [class*="selection"]').first().text()
-  );
-  const trainer = normalise($el.find('[class*="trainer"]').first().text());
-  const form    = normalise($el.find('[class*="form"]').first().text());
-
-  if (trap >= 1 && trap <= 6 && name.length > 2) {
-    return { trap, name, trainer, form, openingOdds: null, currentOdds: null };
-  }
-  return null;
-}
-
-/**
- * Parse a runner from a jQuery collection of <td> elements (positional).
- * Assumes columns: trap | name | trainer | form [| ...]
- */
-function parseRunnerCells($cells) {
-  const trap    = parseInt($cells.eq(0).text(), 10);
-  const name    = normalise($cells.eq(1).text());
-  const trainer = normalise($cells.eq(2).text());
-  const form    = normalise($cells.eq(3).text());
-
-  if (trap >= 1 && trap <= 6 && name.length > 2) {
-    return { trap, name, trainer, form, openingOdds: null, currentOdds: null };
-  }
-  return null;
-}
-
-// ── JSON extraction (Racing Post __NEXT_DATA__ et al.) ────────────────────────
-
-/**
- * Walk any JSON tree looking for nodes that look like race cards.
- * Handles both array and object structures recursively.
- */
-function extractRacesFromJson(json, today) {
-  const races = [];
-  if (!json || typeof json !== 'object') return races;
-
-  function walk(node) {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(walk); return; }
-
-    // Does this node look like a race?
-    const hasVenueKey  = node.courseName || node.venue || node.meeting || node.track;
-    const hasTimeKey   = node.time || node.raceTime || node.offTime;
-    const hasRunnerKey = node.runners || node.dogs || node.selections;
-
-    if (hasVenueKey && hasTimeKey && hasRunnerKey) {
-      const venueText = String(hasVenueKey);
-      const venue     = matchVenue(venueText);
-      const time      = extractTime(String(hasTimeKey));
-
-      if (venue && time) {
-        const runnersRaw = (hasRunnerKey instanceof Array ? hasRunnerKey : []);
-        const runners = runnersRaw
-          .map(r => ({
-            trap:        parseInt(r.trap || r.trapNumber || r.cloth || r.saddle, 10) || 0,
-            name:        normalise(r.name || r.dogName || r.runner || r.horse || ''),
-            trainer:     normalise(r.trainer || r.trainerName || ''),
-            form:        normalise(r.form || r.recentForm || r.formFigures || ''),
-            openingOdds: null,
-            currentOdds: null,
-          }))
-          .filter(r => r.trap >= 1 && r.trap <= 6 && r.name.length > 2);
-
-        if (runners.length >= 2) {
-          races.push({
-            id:       `${venueCode(venue)}-${time.replace(':', '')}`,
-            venue,
-            time,
-            date:     today,
-            distance: normalise(String(node.distance || node.dist || '')),
-            grade:    normalise(String(node.class || node.grade || node.raceClass || node.category || '')),
-            prize:    normalise(String(node.prize || node.prizeMoney || node.winnerPrize || '')),
-            runners,
-          });
-        }
-      }
-    }
-
-    // Recurse
-    for (const val of Object.values(node)) {
-      if (val && typeof val === 'object') walk(val);
-    }
-  }
-
-  walk(json);
-  return deduplicateRaces(races);
-}
-
-// ── Text extraction helpers ───────────────────────────────────────────────────
+// ── Text helpers ──────────────────────────────────────────────────────────────
 
 function normalise(str) {
   return (str || '').replace(/\s+/g, ' ').trim();
 }
 
-function extractTime(text) {
-  const m = (text || '').match(/\b(\d{1,2})[:.h](\d{2})\b/);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : '';
+function formatTime(timeStr) {
+  // GBGB returns "HH:MM:SS"
+  const m = (timeStr || '').match(/(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
+function parseGBGBDate(dateStr) {
+  // GBGB returns "MM/DD/YYYY"
+  const m = (dateStr || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[1]}-${m[2]}` : dateStr;
 }
 
 function extractDistance(text) {
@@ -488,12 +410,12 @@ function extractPrize(text) {
   return m ? m[0] : '';
 }
 
-// ── Deduplication ─────────────────────────────────────────────────────────────
+function looksLikeDogName(str) {
+  return /^[A-Z][a-z]+(\s[A-Z][a-z]+)+$/.test(str) && str.length > 4 && str.length < 50;
+}
 
-/**
- * Remove duplicate races (same venue + time).
- * Prefers the entry with more runners; sorts by venue then time.
- */
+// ── Deduplication + sorting ───────────────────────────────────────────────────
+
 function deduplicateRaces(races) {
   const seen = new Map();
   for (const race of races) {
@@ -508,4 +430,4 @@ function deduplicateRaces(races) {
   });
 }
 
-module.exports = { fetchRaceCards };
+module.exports = { fetchRaceCards, fetchTodaysResults };
