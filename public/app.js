@@ -299,7 +299,13 @@ function renderTrap(trap) {
 }
 
 function renderDogName(r) {
-  return `<span class="dog-name">${esc(r.name)}</span>`;
+  const stars = r.starRating
+    ? `<span class="star-rating" title="Timeform rating: ${r.starRating}/5">` +
+      `<span class="stars-filled">${'★'.repeat(r.starRating)}</span>` +
+      `<span class="stars-empty">${'★'.repeat(5 - r.starRating)}</span>` +
+      `</span>`
+    : '';
+  return `<span class="dog-name">${esc(r.name)}</span>${stars}`;
 }
 
 function renderForm(form) {

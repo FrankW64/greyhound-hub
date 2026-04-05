@@ -213,66 +213,88 @@ async function fetchTimeformRace({ url, venue, time, date, raceId }) {
 }
 
 /**
- * Parse runner rows from any Cheerio container using Timeform's known structure:
- *   - Trap:    <img src="...trap-X.png">
- *   - Dog:     <a href="/greyhound-racing/greyhound-form/...">Name</a>
- *   - Trainer: text in adjacent cell (often includes strike rate in parens)
- *   - Form:    numeric/letter string that looks like form, e.g. "2TTT4"
+ * Parse runner rows from a Cheerio container using Timeform's confirmed structure.
+ *
+ * Each runner spans TWO consecutive <tr> rows:
+ *   Row 1 (class "rpb-entry-details"):
+ *     - td.rpb-entry-details-trap  → <img class="rpb-trap"> + <span title="previous 5...">FORM</span>
+ *     - td                         → <a class="rpb-greyhound">DOG NAME</a>
+ *     - td                         → (empty or hidden cols)
+ *   Row 2 (next sibling <tr>):
+ *     - td → <span title="...trainer...">TRAINER (XX.XX%)</span>
+ *     - td → <span title="...gender...">bk d Aug20</span>
+ *     - td → star rating images: <img src="...star-blue.png"> / <img src="...star-grey.png">
  */
 function parseRunnerBlock($, container) {
   const runners = [];
   const seen    = new Set();
 
-  // Find all trap images — each one anchors a runner row
-  container.find('img[src*="trap-"]').each((_, img) => {
-    const src  = $(img).attr('src') || '';
-    const trap = parseInt((src.match(/trap-(\d)/) || [])[1], 10);
+  // Target the first-row of each runner pair using the confirmed class name
+  container.find('tr.rpb-entry-details, tr[class^="rpb-entry-details"]').each((_, tr) => {
+    const row = $(tr);
+
+    // ── Trap number ──────────────────────────────────────────────────────────
+    // From img alt attribute (most reliable) or src filename
+    const trapImg = row.find('img.rpb-trap, img[src*="trap-"]').first();
+    const trap    = parseInt(trapImg.attr('alt') || '', 10) ||
+                    parseInt((trapImg.attr('src') || '').match(/trap-(\d)/)?.[1] || '0', 10);
     if (!trap || trap < 1 || trap > 6) return;
 
-    // Walk up to find the containing row or block for this runner
-    const row = $(img).closest('tr, li, [class*="runner"], [class*="dog"], div').first();
-    if (!row.length) return;
-
-    // Dog name: nearest link to /greyhound-form/
-    let name = normalise(
-      row.find('a[href*="/greyhound-racing/greyhound-form/"]').first().text()
+    // ── Form string ──────────────────────────────────────────────────────────
+    // In the span inside the trap cell, titled "previous 5 finishing positions"
+    const form = normalise(
+      row.find('span[title*="previous 5"], span[title*="finishing positions"]').first().text()
     );
-    // Fallback: any link text that looks like a dog name
-    if (!name) {
-      row.find('a').each((_, a) => {
-        const t = normalise($(a).text());
-        if (looksLikeDogName(t)) { name = t; return false; }
-      });
-    }
+
+    // ── Dog name ─────────────────────────────────────────────────────────────
+    const name = normalise(
+      row.find('a.rpb-greyhound, a[class*="rpb-greyhound"]').first().text()
+    );
     if (!name || name.length < 3) return;
     if (seen.has(name.toLowerCase())) return;
     seen.add(name.toLowerCase());
 
-    // Trainer: text in a td/cell that isn't the name and contains a letter
-    let trainer = '';
-    row.find('td, [class*="trainer"]').each((_, cell) => {
-      const t = normalise($(cell).text().replace(/\(\d+(\.\d+)?%\)/, '').trim());
-      if (t && t !== name && /[A-Za-z]/.test(t) && t.length > 2 && t.length < 60) {
-        trainer = t;
-        return false;
-      }
-    });
+    // ── Trainer + star rating ────────────────────────────────────────────────
+    // These live in the NEXT sibling <tr> (second row of the runner pair)
+    const nextRow = row.next('tr');
 
-    // Form: a string of digits/letters that looks like recent form
-    let form = '';
-    row.find('td, [class*="form"]').each((_, cell) => {
-      const t = normalise($(cell).text());
-      if (/^[0-9A-Za-zT\-\.\/]+$/.test(t) && t.length >= 3 && t.length <= 12 &&
-          /\d/.test(t) && t !== String(trap)) {
-        form = t;
-        return false;
-      }
-    });
+    const trainerRaw = normalise(
+      nextRow.find('span[title*="trainer"], span[title*="Trainer"]').first().text()
+    );
+    // Strip the 21-day strike rate "(27.77%)" appended by Timeform
+    const trainer = trainerRaw.replace(/\s*\(\d+(\.\d+)?%\)\s*$/, '').trim();
 
-    runners.push({ trap, name, trainer, form, openingOdds: null, currentOdds: null });
+    // Stars: count blue (filled) stars across both rows
+    const blueStars = row.find('img[src*="star-blue"]').length +
+                      nextRow.find('img[src*="star-blue"]').length;
+    const starRating = blueStars > 0 ? blueStars : null;
+
+    runners.push({ trap, name, trainer, form, starRating, openingOdds: null, currentOdds: null });
   });
 
-  // Sort by trap number
+  // Fallback: original trap-image approach if no rpb-entry-details rows found
+  if (!runners.length) {
+    container.find('img[src*="trap-"]').each((_, img) => {
+      const trap = parseInt($(img).attr('alt') || '', 10) ||
+                   parseInt(($(img).attr('src') || '').match(/trap-(\d)/)?.[1] || '0', 10);
+      if (!trap || trap < 1 || trap > 6) return;
+
+      const row  = $(img).closest('tr').first();
+      const name = normalise(row.find('a[href*="greyhound-form"]').first().text());
+      if (!name || name.length < 3 || seen.has(name.toLowerCase())) return;
+      seen.add(name.toLowerCase());
+
+      const nextRow    = row.next('tr');
+      const trainerRaw = normalise(nextRow.find('span[title*="trainer"]').first().text());
+      const trainer    = trainerRaw.replace(/\s*\(\d+(\.\d+)?%\)\s*$/, '').trim();
+      const form       = normalise(row.find('span[title*="previous 5"]').first().text());
+      const blueStars  = row.find('img[src*="star-blue"]').length +
+                         nextRow.find('img[src*="star-blue"]').length;
+
+      runners.push({ trap, name, trainer, form, starRating: blueStars || null, openingOdds: null, currentOdds: null });
+    });
+  }
+
   runners.sort((a, b) => a.trap - b.trap);
   return runners;
 }

@@ -36,7 +36,7 @@ function makeMockBookieOdds(openingOdds) {
   return { bestBookmakerOdds: odds[0], allBookmakerOdds: odds };
 }
 
-function makeRunner(trap, name, trainer, form, openingOdds, drift = 0, tipSources = [], tipPositions = null) {
+function makeRunner(trap, name, trainer, form, openingOdds, drift = 0, tipSources = [], tipPositions = null, starRating = null) {
   const currentOdds = parseFloat((openingOdds + drift).toFixed(2));
   const { bestBookmakerOdds, allBookmakerOdds } = makeMockBookieOdds(openingOdds);
   // Auto-fill positions: 1st for all sources unless explicitly provided
@@ -57,6 +57,7 @@ function makeRunner(trap, name, trainer, form, openingOdds, drift = 0, tipSource
     isTipped:          tipSources.length >= 2,
     isBestBet:         tipSources.length >= 2 && currentOdds > openingOdds,
     isEachWayOutsider: tipSources.length >= 1 && currentOdds >= 7.0,
+    starRating,
     trapColour: TRAP_COLOURS[trap],
   };
 }
@@ -70,12 +71,12 @@ function generateMockRaces() {
       id: 'ROM-1430', venue: 'Romford', time: '14:30', date: today,
       distance: '400m', grade: 'A4', prize: '£210',
       runners: [
-        makeRunner(1, 'Skywalker Turbo',  'J. Mullins',  '1-2-1-3-2', 4.50, +0.80, ['timeform', 'attheraces', 'racingpost'], { timeform: 1, attheraces: 2, racingpost: 1 }),
-        makeRunner(2, 'Droopys Senator',  'C. Buckland', '3-1-2-4-1', 3.20,  0.00, ['timeform'], { timeform: 1 }),
-        makeRunner(3, 'Ballymac Quest',   'S. Cahill',   '2-3-4-2-3', 6.00, -0.50, []),
-        makeRunner(4, 'Headford Tiger',   'P. Young',    '4-5-3-1-4', 8.00, +1.00, []),
-        makeRunner(5, 'Antigua Sunset',   'D. Dark',     '1-1-2-3-1', 2.80,  0.00, ['attheraces'], { attheraces: 2 }),
-        makeRunner(6, 'Greenpark Ivy',    'M. Wallis',   '5-4-5-6-5', 14.00,-1.00, []),
+        makeRunner(1, 'Skywalker Turbo',  'J. Mullins',  '1-2-1-3-2', 4.50, +0.80, ['timeform', 'attheraces', 'racingpost'], { timeform: 1, attheraces: 2, racingpost: 1 }, 4),
+        makeRunner(2, 'Droopys Senator',  'C. Buckland', '3-1-2-4-1', 3.20,  0.00, ['timeform'], { timeform: 1 }, 3),
+        makeRunner(3, 'Ballymac Quest',   'S. Cahill',   '2-3-4-2-3', 6.00, -0.50, [], null, 2),
+        makeRunner(4, 'Headford Tiger',   'P. Young',    '4-5-3-1-4', 8.00, +1.00, [], null, 2),
+        makeRunner(5, 'Antigua Sunset',   'D. Dark',     '1-1-2-3-1', 2.80,  0.00, ['attheraces'], { attheraces: 2 }, 5),
+        makeRunner(6, 'Greenpark Ivy',    'M. Wallis',   '5-4-5-6-5', 14.00,-1.00, [], null, 1),
       ],
     },
     {
