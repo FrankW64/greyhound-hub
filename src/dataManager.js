@@ -122,7 +122,17 @@ class DataManager {
             return [];
           });
 
+      // Diagnostic: log sample tip names and match result
+      if (tips.length) {
+        const sample = [...new Set(tips.map(t => t.dogName).filter(Boolean))].slice(0, 8);
+        console.log(`[DataManager] Tip dog names sample: ${sample.join(', ')}`);
+      }
+
       races = mergeTips(races, tips);
+
+      const tippedCount = races.flatMap(r => r.runners).filter(r => r.tipsCount > 0).length;
+      console.log(`[DataManager] Tips merged: ${tips.length} tips → ${tippedCount} tipped runners`);
+
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)
