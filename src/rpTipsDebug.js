@@ -19,16 +19,27 @@ const puppeteer = require('puppeteer');
   const today = new Date().toISOString().split('T')[0];
   console.log('Date:', today);
 
-  // Capture ALL API/JSON responses
+  // Set realistic browser headers to avoid bot detection
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'en-GB,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  });
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  );
+
+  // Capture ALL responses (log URL + content-type for every one)
   const captured = [];
+  const allUrls  = [];
   page.on('response', async resp => {
     const url = resp.url();
     const ct  = resp.headers()['content-type'] || '';
-    if (!ct.includes('json') && !url.includes('/api/') && !url.includes('/tips') && !url.includes('/card')) return;
+    allUrls.push(`[${resp.status()}] ${ct.split(';')[0].padEnd(30)} ${url}`);
+    if (!ct.includes('json') && !ct.includes('text/plain')) return;
     try {
       const text = await resp.text();
-      if (text.length > 50 && text.length < 100000) {
-        captured.push({ url, status: resp.status(), body: text.slice(0, 2000) });
+      if (text.length > 20 && text.length < 200000) {
+        captured.push({ url, status: resp.status(), ct, body: text.slice(0, 3000) });
       }
     } catch (_) {}
   });
@@ -79,10 +90,11 @@ const puppeteer = require('puppeteer');
     console.log('Body:', c.body);
   });
 
+  console.log(`\n=== All URLs loaded on tips page (${allUrls.length}) ===`);
+  allUrls.forEach(u => console.log(u));
+
   if (!captured.length) {
-    console.log('No JSON API calls captured. The page may load data differently.');
-    console.log('All response URLs seen on tips page:');
-    // Re-attach listener for all URLs
+    console.log('\nNo JSON responses found — site may be blocking headless browser.');
   }
 
   await browser.close();
