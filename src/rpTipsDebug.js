@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Debug script — dumps the Racing Post tips page HTML so we can fix selectors.
+ * Debug script — intercepts Racing Post API responses to find the tips data endpoint.
  * Run on VPS: node src/rpTipsDebug.js
  */
 const puppeteer = require('puppeteer');
@@ -8,6 +8,7 @@ const puppeteer = require('puppeteer');
 (async () => {
   const browser = await puppeteer.launch({
     headless: 'new',
+    protocolTimeout: 120000,
     executablePath: '/usr/bin/chromium-browser',
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote'],
   });
@@ -18,20 +19,44 @@ const puppeteer = require('puppeteer');
   const today = new Date().toISOString().split('T')[0];
   console.log('Date:', today);
 
-  // Step 1: get a race_id from the meeting list
+  // Capture ALL API/JSON responses
+  const captured = [];
+  page.on('response', async resp => {
+    const url = resp.url();
+    const ct  = resp.headers()['content-type'] || '';
+    if (!ct.includes('json') && !url.includes('/api/') && !url.includes('/tips') && !url.includes('/card')) return;
+    try {
+      const text = await resp.text();
+      if (text.length > 50 && text.length < 100000) {
+        captured.push({ url, status: resp.status(), body: text.slice(0, 2000) });
+      }
+    } catch (_) {}
+  });
+
+  // Step 1: load meeting list
   console.log('\n=== Loading meeting list ===');
   await page.goto(`https://greyhoundbet.racingpost.com/#meeting-list/r_date=${today}`, {
     waitUntil: 'domcontentloaded', timeout: 30000,
   });
-  console.log('Meeting list loaded — waiting 6s for React…');
-  await new Promise(r => setTimeout(r, 6000));
+  await new Promise(r => setTimeout(r, 8000));
 
-  const links = await page.evaluate(() =>
-    [...document.querySelectorAll('a[href*="race_id"]')].slice(0, 5).map(a => a.getAttribute('href'))
-  );
+  // Extract race links from DOM using a short timeout evaluate
+  let links = [];
+  try {
+    links = await Promise.race([
+      page.evaluate(() =>
+        [...document.querySelectorAll('a[href*="race_id"]')].slice(0, 5).map(a => a.getAttribute('href'))
+      ),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 15000)),
+    ]);
+  } catch (e) {
+    console.log('evaluate failed:', e.message);
+  }
+
   console.log('Race links found:', links.length);
   if (!links.length) {
-    console.log('Body snippet:', (await page.evaluate(() => document.body.innerHTML)).slice(0, 1000));
+    console.log('\n=== API calls captured on meeting list page ===');
+    captured.forEach(c => console.log(`\n${c.status} ${c.url}\n${c.body.slice(0,500)}`));
     await browser.close(); return;
   }
 
@@ -39,46 +64,27 @@ const puppeteer = require('puppeteer');
   const allIds = links.map(l => l.match(/race_id=(\d+)/)?.[1]).filter(Boolean).join(',');
   console.log('Using race_id:', raceId);
 
-  // Step 2: load the tips tab for that race
+  // Step 2: navigate to tips tab and capture API responses
+  captured.length = 0; // clear previous captures
   const tipUrl = `https://greyhoundbet.racingpost.com/#card/race_id=${raceId}&r_date=${today}&tab=tips&races_ids=${allIds}`;
   console.log('\n=== Loading tips page ===\n', tipUrl);
   await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  console.log('Page loaded (domcontentloaded) — waiting 8s for React to render…');
-  await new Promise(r => setTimeout(r, 8000));
+  console.log('Waiting 10s for API calls to complete…');
+  await new Promise(r => setTimeout(r, 10000));
 
-  // Step 3: dump class names relevant to tips
-  const tipClasses = await page.evaluate(() => {
-    const all = new Set();
-    document.querySelectorAll('[class]').forEach(el =>
-      (el.className || '').split(/\s+/).forEach(c => { if (c) all.add(c); })
-    );
-    return [...all].filter(c => /tip|select|trap|pick|tab|card|race|row|strength/i.test(c)).sort();
-  });
-  console.log('\n=== Relevant CSS classes ===');
-  console.log(tipClasses.join('\n'));
-
-  // Step 4: dump all tables
-  const tables = await page.evaluate(() =>
-    [...document.querySelectorAll('table')].map(t => ({
-      className: t.className,
-      html: t.outerHTML.slice(0, 1500),
-    }))
-  );
-  console.log(`\n=== Tables found: ${tables.length} ===`);
-  tables.forEach((t, i) => {
-    console.log(`\n-- Table ${i} class="${t.className}" --`);
-    console.log(t.html);
+  console.log(`\n=== API responses captured: ${captured.length} ===`);
+  captured.forEach((c, i) => {
+    console.log(`\n--- Response ${i+1} [${c.status}] ---`);
+    console.log('URL:', c.url);
+    console.log('Body:', c.body);
   });
 
-  // Step 5: dump first 3000 chars around "tip"/"select"/"1st" keywords
-  const bodyHtml = await page.evaluate(() => document.body.innerHTML);
-  ['1st', 'selection', 'tip-', 'strength'].forEach(kw => {
-    const idx = bodyHtml.toLowerCase().indexOf(kw);
-    if (idx !== -1) {
-      console.log(`\n=== Context around "${kw}" ===`);
-      console.log(bodyHtml.slice(Math.max(0, idx - 200), idx + 800));
-    }
-  });
+  if (!captured.length) {
+    console.log('No JSON API calls captured. The page may load data differently.');
+    console.log('All response URLs seen on tips page:');
+    // Re-attach listener for all URLs
+  }
 
   await browser.close();
-})().catch(err => { console.error(err); process.exit(1); });
+  console.log('\nDone.');
+})().catch(err => { console.error(err.message); process.exit(1); });
