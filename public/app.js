@@ -386,7 +386,6 @@ function updateApiStatus(apiStatus) {
   if (!apiStatus) return;
   setStatusIndicator('status-scraper', apiStatus.scraper);
   setStatusIndicator('status-betfair', apiStatus.betfair);
-  setStatusIndicator('status-oddsapi', apiStatus.oddsApi);
 }
 
 function setStatusIndicator(elId, status) {

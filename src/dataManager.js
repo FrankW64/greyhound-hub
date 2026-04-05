@@ -13,8 +13,6 @@
 
 const { generateMockRaces } = require('./mockData');
 const BetfairClient          = require('./betfair');
-const RacingApiClient        = require('./racingApi');
-const OddsApiClient          = require('./oddsApi');
 const { fetchAllTips }       = require('./scraper');
 const { fetchRaceCards, fetchTodaysResults } = require('./racecardScraper');
 const ResultsTracker         = require('./resultsTracker');
@@ -27,8 +25,6 @@ class DataManager {
     this.isPolling   = false;
 
     this.betfair        = null;
-    this.racingApi      = null;
-    this.oddsApi        = null;
     this.useScraperMode = false;
 
     // Persists the first-seen Betfair price as morning odds across refreshes
@@ -45,8 +41,6 @@ class DataManager {
     const {
       USE_MOCK_DATA,
       BETFAIR_USERNAME, BETFAIR_PASSWORD, BETFAIR_APP_KEY,
-      RACING_API_KEY,   RACING_API_BASE,
-      ODDS_API_KEY,
       POLL_INTERVAL,
     } = process.env;
 
@@ -67,23 +61,8 @@ class DataManager {
         appKey:   BETFAIR_APP_KEY,
       });
       console.log('[DataManager] Live mode — Betfair is primary source');
-
-      // Racing API supplements Betfair with distance/prize data where available
-      if (RACING_API_KEY) {
-        this.racingApi = new RacingApiClient({
-          apiKey:  RACING_API_KEY,
-          baseUrl: RACING_API_BASE,
-        });
-        console.log('[DataManager] Racing API enabled (supplementary)');
-      }
     } else {
       console.log('[DataManager] Mock data mode enabled');
-    }
-
-    // The Odds API is optional — works in both mock and live mode
-    if (ODDS_API_KEY) {
-      this.oddsApi = new OddsApiClient({ apiKey: ODDS_API_KEY });
-      console.log('[DataManager] The Odds API enabled');
     }
 
     this.resultsTracker = new ResultsTracker();
@@ -131,19 +110,7 @@ class DataManager {
             return [];
           });
 
-      // Bookmaker odds from The Odds API (optional, works in both modes)
-      let bookmakerOdds = [];
-      if (this.oddsApi) {
-        bookmakerOdds = await this.oddsApi.getGreyhoundOdds().catch(err => {
-          console.warn('[DataManager] Odds API failed:', err.message);
-          return [];
-        });
-      }
-
       races = mergeTips(races, tips);
-      // In mock mode bookmakerOdds from the API is empty, but mock data already
-      // has bestBookmakerOdds built in; only override if live data is available
-      if (bookmakerOdds.length) races = mergeBookmakerOdds(races, bookmakerOdds);
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)
@@ -184,17 +151,6 @@ class DataManager {
     const races = markets.map(market =>
       applyLiveOdds(market, oddsMap[market.marketId] || {}, this._morningOddsCache)
     );
-
-    // 4. Optionally supplement with Racing API data (distance, prize) where
-    //    Betfair's catalogue didn't include it.
-    if (this.racingApi) {
-      try {
-        const racingCards = await this.racingApi.getTodaysRaceCards();
-        return supplementFromRacingApi(races, racingCards);
-      } catch (err) {
-        console.warn('[DataManager] Racing API supplement failed:', err.message);
-      }
-    }
 
     return races;
   }
@@ -269,9 +225,6 @@ class DataManager {
       betfair: this.betfair
         ? this.betfair.status
         : { connected: false, lastError: 'Not configured', lastSuccess: null, errorCount: 0 },
-      oddsApi: this.oddsApi
-        ? this.oddsApi.status
-        : { connected: false, lastError: 'Not configured', lastSuccess: null, remainingRequests: null },
       scraper: this.useScraperMode
         ? (this._scraperStatus || { connected: false, lastError: 'Pending first fetch', lastSuccess: null })
         : { connected: false, lastError: 'Not in scraper mode', lastSuccess: null },
@@ -381,33 +334,6 @@ function applyBadgeLogic(races) {
   }));
 }
 
-// ── Bookmaker odds merging (The Odds API) ─────────────────────────────────────
-
-function mergeBookmakerOdds(races, bookmakerOdds) {
-  return races.map(race => ({
-    ...race,
-    runners: race.runners.map(runner => {
-      const key = normaliseName(runner.name);
-      // Match by name; venue/time matching is a best-effort filter
-      const candidates = bookmakerOdds.filter(o =>
-        o.normName === key &&
-        (!o.venue    || normaliseVenue(o.venue)    === normaliseVenue(race.venue)) &&
-        (!o.raceTime || o.raceTime === race.time)
-      );
-      if (!candidates.length) return runner;
-      // Take the candidate with the highest best price
-      candidates.sort((a, b) =>
-        (b.bestBookmakerOdds?.price || 0) - (a.bestBookmakerOdds?.price || 0)
-      );
-      return {
-        ...runner,
-        bestBookmakerOdds: candidates[0].bestBookmakerOdds,
-        allBookmakerOdds:  candidates[0].allBookmakerOdds,
-      };
-    }),
-  }));
-}
-
 // ── Betfair odds application ──────────────────────────────────────────────────
 
 /**
@@ -433,39 +359,6 @@ function applyLiveOdds(market, marketOdds, morningCache) {
   });
 
   return { ...market, runners };
-}
-
-/**
- * Fill in any fields that Betfair's catalogue omitted (typically distance and
- * prize) by matching against Racing API cards on venue + time.
- */
-function supplementFromRacingApi(races, racingCards) {
-  return races.map(race => {
-    const card = racingCards.find(c =>
-      normaliseVenue(c.venue) === normaliseVenue(race.venue) &&
-      c.time === race.time
-    );
-    if (!card) return race;
-
-    return {
-      ...race,
-      distance: race.distance || card.distance || '',
-      grade:    race.grade    || card.grade    || '',
-      prize:    race.prize    || card.prize    || '',
-      // Supplement trainer/form per runner if Betfair metadata was sparse
-      runners: race.runners.map(runner => {
-        const cardRunner = (card.runners || []).find(
-          cr => normaliseName(cr.name) === normaliseName(runner.name)
-        );
-        if (!cardRunner) return runner;
-        return {
-          ...runner,
-          trainer: runner.trainer || cardRunner.trainer || '',
-          form:    runner.form    || cardRunner.form    || '',
-        };
-      }),
-    };
-  });
 }
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
