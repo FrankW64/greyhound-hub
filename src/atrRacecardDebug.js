@@ -21,7 +21,7 @@ function findChromium() {
 }
 
 // ── Change this to today's actual race URL ────────────────────────────────────
-const TEST_URL = 'https://greyhounds.attheraces.com/racecard/GB/towcester/05-April-2026/1743';
+const TEST_URL = 'https://greyhounds.attheraces.com/racecard/GB/towcester/05-April-2026/1802';
 
 (async () => {
   const browser = await puppeteer.launch({
