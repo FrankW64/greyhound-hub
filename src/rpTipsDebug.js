@@ -21,9 +21,10 @@ const puppeteer = require('puppeteer');
   // Step 1: get a race_id from the meeting list
   console.log('\n=== Loading meeting list ===');
   await page.goto(`https://greyhoundbet.racingpost.com/#meeting-list/r_date=${today}`, {
-    waitUntil: 'networkidle2', timeout: 40000,
+    waitUntil: 'domcontentloaded', timeout: 30000,
   });
-  await new Promise(r => setTimeout(r, 3000));
+  console.log('Meeting list loaded — waiting 6s for React…');
+  await new Promise(r => setTimeout(r, 6000));
 
   const links = await page.evaluate(() =>
     [...document.querySelectorAll('a[href*="race_id"]')].slice(0, 5).map(a => a.getAttribute('href'))
@@ -41,8 +42,9 @@ const puppeteer = require('puppeteer');
   // Step 2: load the tips tab for that race
   const tipUrl = `https://greyhoundbet.racingpost.com/#card/race_id=${raceId}&r_date=${today}&tab=tips&races_ids=${allIds}`;
   console.log('\n=== Loading tips page ===\n', tipUrl);
-  await page.goto(tipUrl, { waitUntil: 'networkidle2', timeout: 40000 });
-  await new Promise(r => setTimeout(r, 5000)); // let React finish rendering
+  await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  console.log('Page loaded (domcontentloaded) — waiting 8s for React to render…');
+  await new Promise(r => setTimeout(r, 8000));
 
   // Step 3: dump class names relevant to tips
   const tipClasses = await page.evaluate(() => {
