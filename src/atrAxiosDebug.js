@@ -29,14 +29,14 @@ const HEADERS = {
 (async () => {
   console.log('Fetching:', TEST_URL);
   try {
-    const { data, status, headers } = await axios.get(TEST_URL, {
-      headers,
+    const { data, status, headers: resHeaders } = await axios.get(TEST_URL, {
+      headers: HEADERS,
       timeout: 15000,
       maxRedirects: 5,
     });
 
     console.log('Status:', status);
-    console.log('Content-Type:', headers['content-type']);
+    console.log('Content-Type:', resHeaders['content-type']);
     console.log('Response length:', data.length);
 
     const $ = cheerio.load(data);
