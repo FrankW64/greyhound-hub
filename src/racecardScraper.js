@@ -256,7 +256,8 @@ function parseRunnerBlock($, container) {
 
     // ── Trainer + star rating ────────────────────────────────────────────────
     // These live in the NEXT sibling <tr> (second row of the runner pair)
-    const nextRow = row.next('tr');
+    const nextRow  = row.next('tr');          // row 2: trainer, gender, seed
+    const starRow  = nextRow.next('tr');      // row 3: nested table with star rating + comment
 
     const trainerRaw = normalise(
       nextRow.find('span[title*="trainer"], span[title*="Trainer"]').first().text()
@@ -264,12 +265,16 @@ function parseRunnerBlock($, container) {
     // Strip the 21-day strike rate "(27.77%)" appended by Timeform
     const trainer = trainerRaw.replace(/\s*\(\d+(\.\d+)?%\)\s*$/, '').trim();
 
-    // Stars: count blue (filled) stars across both rows
-    const blueStars = row.find('img[src*="star-blue"]').length +
-                      nextRow.find('img[src*="star-blue"]').length;
+    // Stars live in td.rpb-star-rating inside a nested table in row 3
+    const blueStars = starRow.find('td.rpb-star-rating img[src*="star-blue"], img.rpb-star[src*="star-blue"]').length;
     const starRating = blueStars > 0 ? blueStars : null;
 
-    runners.push({ trap, name, trainer, form, starRating, openingOdds: null, currentOdds: null });
+    // Timeform numeric master rating (rpb-final-rating div in row 1)
+    const tfRating = parseInt(
+      row.find('div.rpb-final-rating').first().text().trim(), 10
+    ) || null;
+
+    runners.push({ trap, name, trainer, form, starRating, tfRating, openingOdds: null, currentOdds: null });
   });
 
   // Fallback: original trap-image approach if no rpb-entry-details rows found
@@ -285,11 +290,11 @@ function parseRunnerBlock($, container) {
       seen.add(name.toLowerCase());
 
       const nextRow    = row.next('tr');
+      const starRow    = nextRow.next('tr');
       const trainerRaw = normalise(nextRow.find('span[title*="trainer"]').first().text());
       const trainer    = trainerRaw.replace(/\s*\(\d+(\.\d+)?%\)\s*$/, '').trim();
       const form       = normalise(row.find('span[title*="previous 5"]').first().text());
-      const blueStars  = row.find('img[src*="star-blue"]').length +
-                         nextRow.find('img[src*="star-blue"]').length;
+      const blueStars  = starRow.find('td.rpb-star-rating img[src*="star-blue"], img.rpb-star[src*="star-blue"]').length;
 
       runners.push({ trap, name, trainer, form, starRating: blueStars || null, openingOdds: null, currentOdds: null });
     });
