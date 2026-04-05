@@ -123,9 +123,10 @@ class DataManager {
       }
 
       // Tips: real scrape in live/scraper mode; derive from mock tipSources in demo mode
+      // Pass races so Racing Post scraper can resolve trap numbers to dog names
       const tips = this.useMockData
         ? buildMockTips(races)
-        : await fetchAllTips().catch(err => {
+        : await fetchAllTips(races).catch(err => {
             console.warn('[DataManager] Tips scrape failed:', err.message);
             return [];
           });

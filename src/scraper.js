@@ -164,72 +164,19 @@ async function scrapeAtTheRaces() {
   return tips;
 }
 
-// ── Source: Racing Post (racingpost.com) ──────────────────────────────────────
-
-async function scrapeRacingPost() {
-  const SOURCE      = 'racingpost';
-  const SOURCE_NAME = 'Racing Post';
-  const tips = [];
-
-  try {
-    const html = await fetchHtml('https://www.racingpost.com/greyhounds/tips');
-    const $ = cheerio.load(html);
-
-    // Racing Post renders tips in card-style components (React/Next.js)
-    $('[class*="TipCard"], [class*="tip-card"], [class*="tipCard"], [data-test-id*="tip"]').each((_, el) => {
-      const row      = $(el);
-      const dogName  = normalise(row.find('[class*="selection"], [class*="runner"], [class*="dog"], [class*="name"]').first().text());
-      const venue    = extractVenueFromText(row.text());
-      const time     = extractTimeFromText(row.text());
-      const position = extractPosition(row.text());
-
-      if (looksLikeDogName(dogName)) {
-        tips.push({ source: SOURCE, sourceName: SOURCE_NAME, dogName, venue, raceTime: time, position });
-      }
-    });
-
-    // Fallback: table rows / list items with NAP/tip/win markers
-    if (!tips.length) {
-      $('tr, li, [class*="runner-row"]').each((_, el) => {
-        const row  = $(el);
-        const text = row.text();
-        if (!/nap|tip|pick|selection|win|e\/w/i.test(text)) return;
-
-        const dogName = extractDogNameFromText(text);
-        if (!dogName) return;
-
-        const venue    = extractVenueFromText(text);
-        const time     = extractTimeFromText(text);
-        const position = extractPosition(text);
-        tips.push({ source: SOURCE, sourceName: SOURCE_NAME, dogName, venue, raceTime: time, position });
-      });
-    }
-
-    // Fallback: embedded JSON (Next.js __NEXT_DATA__ blob)
-    if (!tips.length) {
-      $('script[id="__NEXT_DATA__"], script[type="application/json"]').each((_, el) => {
-        try {
-          const json = JSON.parse($(el).html());
-          extractTipsFromJson(json, SOURCE, SOURCE_NAME, tips);
-        } catch (_) {}
-      });
-    }
-
-    console.log(`[Scraper] ${SOURCE_NAME}: found ${tips.length} tips`);
-  } catch (err) {
-    console.warn(`[Scraper] ${SOURCE_NAME} failed: ${err.message}`);
-  }
-
-  return tips;
-}
-
 // ── Aggregator ────────────────────────────────────────────────────────────────
 
-async function fetchAllTips() {
+/**
+ * races parameter is optional — passed through to the Racing Post Puppeteer
+ * scraper so it can match tips by trap number back to dog names.
+ */
+async function fetchAllTips(races) {
+  const { scrapeRacingPostTips } = require('./racingPostScraper');
+
   const results = await Promise.allSettled([
     scrapeTimeform(),
     scrapeAtTheRaces(),
-    scrapeRacingPost(),
+    scrapeRacingPostTips(races || []),
   ]);
 
   const allTips = [];
