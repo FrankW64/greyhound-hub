@@ -171,9 +171,6 @@ async function scrapeAtTheRaces() {
  * scraper so it can match tips by trap number back to dog names.
  */
 async function fetchAllTips(races) {
-  // Note: Timeform tips are now derived from star ratings on race cards
-  // (see deriveTipsFromStarRatings in dataManager.js) — more reliable than
-  // scraping the Timeform tips page whose HTML structure changes frequently.
   const scrapers = [scrapeAtTheRaces()];
 
   // RP scraper requires Puppeteer + Chromium — skip on resource-constrained servers

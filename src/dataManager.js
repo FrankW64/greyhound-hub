@@ -122,15 +122,7 @@ class DataManager {
             return [];
           });
 
-      // In scraper mode, derive Timeform picks from star ratings already on the
-      // race cards — far more reliable than scraping a separate tips page whose
-      // HTML changes frequently.  Runners with the highest star ratings become
-      // 1st/2nd/3rd Timeform selections for that race.
-      const cardTips = this.useScraperMode ? deriveTipsFromStarRatings(races) : [];
-      const allTips  = [...cardTips, ...tips];
-      console.log(`[DataManager] Tips: ${cardTips.length} from star ratings, ${tips.length} from scrapers`);
-
-      races = mergeTips(races, allTips);
+      races = mergeTips(races, tips);
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)
@@ -307,39 +299,6 @@ class DataManager {
       },
     };
   }
-}
-
-// ── Timeform tips from star ratings ──────────────────────────────────────────
-
-/**
- * Derive Timeform tip selections directly from the star ratings already
- * scraped from Timeform race card pages.  This is more reliable than
- * scraping a separate tips page.
- *
- * Runners are ranked by starRating (desc) within each race; the top three
- * become 1st / 2nd / 3rd Timeform selections.  Runners with 0 stars are
- * ignored (no rating = no pick).
- */
-function deriveTipsFromStarRatings(races) {
-  const tips = [];
-  for (const race of races) {
-    const rated = (race.runners || [])
-      .filter(r => r.starRating > 0)
-      .sort((a, b) => b.starRating - a.starRating);
-
-    rated.forEach((runner, i) => {
-      if (i >= 3) return;
-      tips.push({
-        source:     'timeform',
-        sourceName: 'Timeform',
-        dogName:    runner.name,
-        venue:      race.venue,
-        raceTime:   race.time,
-        position:   i + 1,
-      });
-    });
-  }
-  return tips;
 }
 
 // ── Tips merging ──────────────────────────────────────────────────────────────
