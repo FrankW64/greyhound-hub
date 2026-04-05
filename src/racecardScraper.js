@@ -181,7 +181,7 @@ function parseTimeformListing($, today) {
 }
 
 /**
- * Fetch a single Timeform race card page and parse its runners.
+ * Fetch a single Timeform race card page and parse its runners + analyst verdict.
  */
 async function fetchTimeformRace({ url, venue, time, date, raceId }) {
   try {
@@ -193,8 +193,10 @@ async function fetchTimeformRace({ url, venue, time, date, raceId }) {
       .first().text();
     const pageText   = $('body').text();
 
-    const runners = parseRunnerBlock($, $('body'));
+    const runners     = parseRunnerBlock($, $('body'));
     if (runners.length < 2) return null;
+
+    const verdictTips = parseAnalystVerdict($, runners);
 
     return {
       id:       `TF-${raceId}`,
@@ -205,11 +207,68 @@ async function fetchTimeformRace({ url, venue, time, date, raceId }) {
       grade:    extractGrade(headerText)    || extractGrade(pageText),
       prize:    extractPrize(headerText)    || extractPrize(pageText),
       runners,
+      verdictTips,
     };
   } catch (err) {
     console.warn(`[RacecardScraper] Timeform race ${raceId} failed: ${err.message}`);
     return null;
   }
+}
+
+/**
+ * Parse the Analyst Verdict section from a Timeform racecard page.
+ *
+ * Structure:
+ *   <h3>Analyst Verdict</h3>
+ *   <div class="rpf-verdict ...">
+ *     <div class="rpf-verdict-container">
+ *       <div class="rpf-verdict-selection">
+ *         <b class="rpf-verdict-selection-prediction">2.</b>
+ *         <img class="rpf-verdict-selection-trap" alt="6">
+ *         <div class="rpf-verdict-selection-name"><a>TRICKYS MATILDA</a></div>
+ *       </div>
+ *       <!-- 3rd pick similarly -->
+ *     </div>
+ *     <div class="rpf-verdict-text-container">...Be My Lass just about edges it...</div>
+ *   </div>
+ *
+ * 2nd and 3rd picks are in structured divs with position labels.
+ * 1st pick is mentioned by name in the verdict text — find it by matching runner names.
+ *
+ * Returns: [{ position, trap, dogName }]
+ */
+function parseAnalystVerdict($, runners) {
+  const tips       = [];
+  const pickedNorm = new Set();
+
+  // Extract structured 2nd and 3rd picks
+  $('.rpf-verdict-selection').each((_, el) => {
+    const predText = $(el).find('b.rpf-verdict-selection-prediction').text().trim();
+    const position = parseInt(predText, 10);
+    if (!position || position < 2) return;
+
+    const trap    = parseInt($(el).find('img.rpf-verdict-selection-trap').attr('alt') || '0', 10) || null;
+    const dogName = normalise($(el).find('.rpf-verdict-selection-name a').text());
+    if (!dogName) return;
+
+    tips.push({ position, trap, dogName });
+    pickedNorm.add(dogName.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  });
+
+  // Find 1st pick from verdict text — the runner whose name appears but isn't 2nd/3rd
+  const verdictText = ($('.rpf-verdict').text() || '').toLowerCase();
+  if (verdictText && runners.length) {
+    for (const runner of runners) {
+      const norm = runner.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (pickedNorm.has(norm)) continue;
+      if (verdictText.includes(runner.name.toLowerCase())) {
+        tips.push({ position: 1, trap: runner.trap, dogName: runner.name });
+        break;
+      }
+    }
+  }
+
+  return tips;
 }
 
 /**

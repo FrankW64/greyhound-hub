@@ -122,7 +122,22 @@ class DataManager {
             return [];
           });
 
-      races = mergeTips(races, tips);
+      // Convert Timeform Analyst Verdict picks (scraped per racecard page) into tip objects
+      const verdictTips = this.useMockData ? [] : races.flatMap(race =>
+        (race.verdictTips || []).map(vt => ({
+          source:     'timeform',
+          sourceName: 'Timeform',
+          dogName:    vt.dogName,
+          venue:      race.venue,
+          raceTime:   race.time,
+          position:   vt.position,
+        }))
+      );
+      if (verdictTips.length) {
+        console.log(`[DataManager] ${verdictTips.length} Timeform verdict tips extracted`);
+      }
+
+      races = mergeTips(races, [...verdictTips, ...tips]);
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)
