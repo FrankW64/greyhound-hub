@@ -18,20 +18,30 @@ const rpDate = `${year}-${month}-${day}`;
 
 // Candidate API patterns to try
 const CANDIDATES = [
-  `https://greyhoundbet.racingpost.com/data/tips.sd`,
-  `https://greyhoundbet.racingpost.com/data/tips.sd?date=${rpDate}`,
-  `https://greyhoundbet.racingpost.com/data/tips`,
-  `https://greyhoundbet.racingpost.com/data/meeting-list.sd`,
-  `https://greyhoundbet.racingpost.com/data/meeting-list.sd?r_date=${rpDate}`,
-  `https://greyhoundbet.racingpost.com/data/race-tips.sd`,
-  `https://greyhoundbet.racingpost.com/data/racecard.sd`,
-  `https://api.racingpost.com/greyhound/tips`,
-  `https://api.racingpost.com/greyhound/tips?date=${rpDate}`,
-  `https://greyhoundbet.racingpost.com/service/tips.sd`,
-  `https://greyhoundbet.racingpost.com/service/tips.sd?date=${rpDate}`,
+  // Page-name.sd pattern (matches hash routing)
+  `https://greyhoundbet.racingpost.com/meeting-list.sd`,
+  `https://greyhoundbet.racingpost.com/meeting-list.sd?r_date=${rpDate}`,
   `https://greyhoundbet.racingpost.com/tips.sd`,
-  `https://push-disabled.racingpost.com/tips`,
-  `https://push-disabled.racingpost.com/data/tips.sd`,
+  `https://greyhoundbet.racingpost.com/tab-tips.sd`,
+  `https://greyhoundbet.racingpost.com/race-tips.sd`,
+  `https://greyhoundbet.racingpost.com/card.sd`,
+  `https://greyhoundbet.racingpost.com/results-list.sd`,
+  // Subdirectory patterns
+  `https://greyhoundbet.racingpost.com/greyhound/tips`,
+  `https://greyhoundbet.racingpost.com/greyhound/tips?date=${rpDate}`,
+  `https://greyhoundbet.racingpost.com/greyhound/meeting-list`,
+  `https://greyhoundbet.racingpost.com/greyhound/meeting-list?r_date=${rpDate}`,
+  // JSON endpoint variations
+  `https://greyhoundbet.racingpost.com/json/tips`,
+  `https://greyhoundbet.racingpost.com/json/meeting-list`,
+  `https://greyhoundbet.racingpost.com/ajax/tips`,
+  `https://greyhoundbet.racingpost.com/ajax/meeting-list`,
+  // With r_date param (used in hash links)
+  `https://greyhoundbet.racingpost.com/meeting-list?r_date=${rpDate}`,
+  `https://greyhoundbet.racingpost.com/tips?r_date=${rpDate}`,
+  // API subdomain
+  `https://api.greyhoundbet.racingpost.com/tips`,
+  `https://api.greyhoundbet.racingpost.com/meeting-list`,
 ];
 
 async function tryUrl(url) {
@@ -78,6 +88,26 @@ async function tryMainPage() {
   }
 }
 
+async function tryMainAppJs() {
+  console.log('\n=== GREYHOUNDBET.MIN.JS - URL PATTERNS ===');
+  try {
+    const { data } = await axios.get('https://greyhoundbet.racingpost.com/js/greyhoundbet.min.js', { headers: HEADERS, timeout: 15000 });
+    const content  = String(data);
+    // Extract strings that look like URL paths
+    const urlMatches = content.match(/["'`][/][a-z][a-z0-9\-._/]*\.sd[^"'`]*/gi) || [];
+    const urlMatches2 = content.match(/url\s*[:=]\s*["'`][^"'`]+["'`]/gi) || [];
+    const tipsMatches = content.match(/.{0,80}tips.{0,80}/gi) || [];
+    console.log('SD file references:');
+    [...new Set(urlMatches)].forEach(m => console.log(' ', m));
+    console.log('\nurl: patterns:');
+    [...new Set(urlMatches2)].slice(0, 20).forEach(m => console.log(' ', m));
+    console.log('\ntips context:');
+    [...new Set(tipsMatches)].slice(0, 10).forEach(m => console.log(' ', m));
+  } catch (err) {
+    console.log('greyhoundbet.min.js error:', err.message);
+  }
+}
+
 async function tryConstantsJs() {
   console.log('\n=== CONSTANTS.JS.SD - LOOKING FOR API URLS ===');
   try {
@@ -112,5 +142,6 @@ async function tryConstantsJs() {
 
   await tryMainPage();
   await tryConstantsJs();
+  await tryMainAppJs();
 
 })().catch(err => { console.error(err.message); process.exit(1); });
