@@ -103,6 +103,12 @@ class DataManager {
         races = simulateOddsMovement(races);
       } else if (this.useScraperMode) {
         races = await this._fetchScraperRaces();
+        // Publish race cards immediately so the UI isn't blank while tips load
+        if (races.length) {
+          this.races       = applyBadgeLogic(mergeTips(races, []));
+          this.lastUpdated = new Date().toISOString();
+          console.log(`[DataManager] Race cards published early — ${races.length} races`);
+        }
       } else {
         races = await this._fetchLiveRaces();
       }

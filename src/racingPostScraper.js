@@ -60,13 +60,13 @@ async function launchBrowser() {
   const executablePath = findChromium();
   const opts = {
     headless: 'new',
+    protocolTimeout: 60000,          // raise from default 180s to avoid per-call hangs
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--no-zygote',
-      '--single-process',            // reduces memory on 1 GB VPS
       '--disable-extensions',
       '--disable-background-networking',
       '--disable-default-apps',
@@ -116,7 +116,7 @@ async function scrapeRacingPostTips(races) {
     // ── Step 1: load the meeting list to get race IDs ─────────────────────────
     console.log('[RPScraper] Loading meeting list…');
     await page.goto(`${BASE_URL}/#meeting-list/r_date=${today}`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout:   30000,
     });
 
@@ -166,7 +166,7 @@ async function scrapeRacingPostTips(races) {
       const tipUrl = `${BASE_URL}/#card/race_id=${raceInfo.race_id}&r_date=${today}&tab=tips&races_ids=${allIds}`;
 
       try {
-        await page.goto(tipUrl, { waitUntil: 'networkidle2', timeout: 25000 });
+        await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
 
         // Wait for the tips tab content to render
         await page.waitForFunction(
