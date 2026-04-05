@@ -1,29 +1,26 @@
 'use strict';
 
 /**
- * Racing Post greyhound tips scraper using Puppeteer.
+ * Racing Post greyhound tips scraper.
  *
- * greyhoundbet.racingpost.com is a JavaScript-rendered app whose data API
- * returns 406 to plain HTTP requests (requires a browser session cookie).
- * Puppeteer renders the page fully, picks up the session, and lets us read
- * the rendered DOM.
+ * greyhoundbet.racingpost.com is a jQuery SPA whose tips data is fetched from
+ * a JSON endpoint:
+ *   /card/blocks.sd?race_id=X&r_date=Y&tab=tips&races_ids=A,B,C&blocks=...tips
+ *
+ * That endpoint returns 406 to plain HTTP (requires a browser session cookie
+ * set by JS), so we use Puppeteer to establish the session and then intercept
+ * the API response directly — no DOM parsing needed.
  *
  * Strategy:
- *   1. Load the meeting list for today to get all race_ids.
- *   2. For each race, navigate to its tips tab.
- *   3. Extract trap number → position (1st/2nd/3rd) mappings.
- *   4. Match to runners in our race cards by trap number.
- *
- * Returns tip objects in the same shape as the other scrapers:
- *   { source, sourceName, dogName, venue, raceTime, trapNumber, position }
- *
- * Memory: uses system Chromium (chromium-browser) to avoid bundling a 300 MB
- * binary. Falls back to the puppeteer bundled executable if not found.
+ *   1. Load the meeting list page → waits for /meeting/blocks.sd response
+ *      which contains all race IDs for today.
+ *   2. Navigate to any race's tips tab with ALL race IDs in races_ids.
+ *   3. Intercept the /card/blocks.sd?...tab=tips response.
+ *   4. Parse the JSON: tips[].{first, second, third} are trap numbers for
+ *      1st/2nd/3rd predicted finishers. race_time_24 is the race time.
+ *   5. Match to our race cards by time; look up runner names by trap number.
  */
 
-const path = require('path');
-
-// Lazy-require puppeteer so the app still starts if it isn't installed
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -36,7 +33,6 @@ const SOURCE_NAME = 'Racing Post';
 const BASE_URL    = 'https://greyhoundbet.racingpost.com';
 const TODAY       = () => new Date().toISOString().split('T')[0];
 
-// Paths where system Chromium is typically installed on Ubuntu
 const CHROMIUM_PATHS = [
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
@@ -49,18 +45,14 @@ function findChromium() {
   for (const p of CHROMIUM_PATHS) {
     try { if (fs.existsSync(p)) return p; } catch (_) {}
   }
-  return null; // puppeteer will use its bundled binary
+  return null;
 }
 
-/**
- * Launch a minimal Puppeteer browser.
- * Uses system Chromium if available to save disk/memory.
- */
 async function launchBrowser() {
   const executablePath = findChromium();
   const opts = {
     headless: 'new',
-    protocolTimeout: 60000,          // raise from default 180s to avoid per-call hangs
+    protocolTimeout: 60000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -81,11 +73,8 @@ async function launchBrowser() {
   return puppeteer.launch(opts);
 }
 
-/**
- * Main entry point.
- * Returns an array of tip objects keyed by trapNumber (not dogName).
- * DataManager will match these to runners via trap number.
- */
+// ── Main entry point ────────────────────────────────────────────────────────
+
 async function scrapeRacingPostTips(races) {
   if (!puppeteer) {
     console.warn('[RPScraper] puppeteer not installed — skipping Racing Post tips');
@@ -100,201 +89,215 @@ async function scrapeRacingPostTips(races) {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    // Block images/fonts/media to speed up loading and save memory
+    // Realistic browser headers to avoid bot detection
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
+
+    // Block images/fonts/media to save memory and bandwidth
     await page.setRequestInterception(true);
     page.on('request', req => {
-      const type = req.resourceType();
-      if (['image', 'font', 'media', 'stylesheet'].includes(type)) {
+      if (['image', 'font', 'media'].includes(req.resourceType())) {
         req.abort();
       } else {
         req.continue();
       }
     });
 
-    await page.setViewport({ width: 1024, height: 768 });
+    // ── Step 1: Intercept the meeting list API to get all race IDs ───────────
+    let meetingJson = null;
+    let tipsJson    = null;
 
-    // ── Step 1: load the meeting list to get race IDs ─────────────────────────
+    page.on('response', async resp => {
+      const url = resp.url();
+      try {
+        if (url.includes('/meeting/blocks.sd')) {
+          meetingJson = JSON.parse(await resp.text());
+        } else if (url.includes('/card/blocks.sd') && url.includes('tab=tips')) {
+          tipsJson = JSON.parse(await resp.text());
+        }
+      } catch (_) {}
+    });
+
     console.log('[RPScraper] Loading meeting list…');
     await page.goto(`${BASE_URL}/#meeting-list/r_date=${today}`, {
       waitUntil: 'domcontentloaded',
       timeout:   30000,
     });
 
-    // Wait for race links to appear
-    await page.waitForSelector('a[href*="race_id"]', { timeout: 15000 }).catch(() => {});
+    // Wait for the meeting API call to complete
+    await waitForCondition(() => meetingJson !== null, 10000).catch(() => {});
 
-    // Extract all race_id → venue + time mappings from the page
-    const raceLinks = await page.evaluate(() => {
-      const links = [];
-      document.querySelectorAll('a[href*="race_id"]').forEach(el => {
-        const href  = el.getAttribute('href') || '';
-        const m     = href.match(/race_id=(\d+)/);
-        const rDate = href.match(/r_date=([\d-]+)/);
-        if (!m) return;
-        // Try to read venue and time from surrounding text
-        const row   = el.closest('tr, li, div') || el;
-        const text  = row.innerText || '';
-        links.push({
-          race_id: m[1],
-          r_date:  rDate ? rDate[1] : '',
-          context: text.slice(0, 100),
-          href,
-        });
-      });
-      return links;
-    });
+    // ── Step 2: Extract all race IDs ─────────────────────────────────────────
 
-    // Deduplicate by race_id and filter to today
-    const seen      = new Set();
-    const todayRaces = raceLinks.filter(r => {
-      if (seen.has(r.race_id) || (r.r_date && r.r_date !== today)) return false;
-      seen.add(r.race_id);
-      return true;
-    });
+    let allRaceIds = [];
 
-    console.log(`[RPScraper] Found ${todayRaces.length} race IDs for ${today}`);
-    if (!todayRaces.length) {
+    if (meetingJson) {
+      // Recursively extract all raceId / race_id values from meeting JSON
+      const extract = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (Array.isArray(obj)) { obj.forEach(extract); return; }
+        if (obj.raceId)  allRaceIds.push(String(obj.raceId));
+        if (obj.race_id) allRaceIds.push(String(obj.race_id));
+        Object.values(obj).forEach(v => { if (v && typeof v === 'object') extract(v); });
+      };
+      extract(meetingJson);
+      allRaceIds = [...new Set(allRaceIds)];
+      console.log(`[RPScraper] ${allRaceIds.length} race IDs from meeting API`);
+    }
+
+    // DOM fallback if the meeting API didn't give us IDs
+    if (!allRaceIds.length) {
+      allRaceIds = await page.evaluate(() =>
+        [...new Set(
+          [...document.querySelectorAll('a[href*="race_id"]')]
+            .map(a => (a.getAttribute('href') || '').match(/race_id=(\d+)/)?.[1])
+            .filter(Boolean)
+        )]
+      ).catch(() => []);
+      console.log(`[RPScraper] ${allRaceIds.length} race IDs from DOM fallback`);
+    }
+
+    if (!allRaceIds.length) {
+      console.warn('[RPScraper] No race IDs found — aborting');
       await browser.close();
       return [];
     }
 
-    // ── Step 2: visit each race's tips tab ────────────────────────────────────
-    // Build the races_ids param from all IDs (used in the URL)
-    const allIds    = todayRaces.map(r => r.race_id).join(',');
+    // ── Step 3: Load tips page — API returns tips for all races_ids ──────────
+    console.log(`[RPScraper] Fetching tips for ${allRaceIds.length} races…`);
+    const firstId    = allRaceIds[0];
+    const racesParam = allRaceIds.join(',');
+    const tipUrl     = `${BASE_URL}/#card/race_id=${firstId}&r_date=${today}&tab=tips&races_ids=${racesParam}`;
 
-    for (const raceInfo of todayRaces) {
-      const tipUrl = `${BASE_URL}/#card/race_id=${raceInfo.race_id}&r_date=${today}&tab=tips&races_ids=${allIds}`;
+    await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-      try {
-        await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    // Wait for the tips API response
+    await waitForCondition(() => tipsJson !== null, 15000).catch(() => {});
 
-        // Wait for the tips tab content to render
-        await page.waitForFunction(
-          () => document.querySelector('.tab-tips, [class*="tab-tips"], [id*="tips"]') !== null ||
-                document.querySelectorAll('img[src*="/trap/"]').length > 0,
-          { timeout: 10000 }
-        ).catch(() => {});
+    if (!tipsJson) {
+      console.warn('[RPScraper] No tips API response received');
+      await browser.close();
+      return [];
+    }
 
-        // Extract tips from the rendered page
-        const raceTips = await page.evaluate((raceId) => {
-          const results = [];
+    // ── Step 4: Parse the JSON response ──────────────────────────────────────
+    const tipEntries = tipsJson.tips?.tips || [];
+    console.log(`[RPScraper] ${tipEntries.length} tip entries from API`);
 
-          // Strategy 1: look for tip rows that show trap + position label
-          // Racing Post typically shows a table: Trap | Dog | Position label
-          const rows = document.querySelectorAll(
-            '.tab-tips tr, [class*="tips"] tr, [class*="tip-row"], [class*="TipRow"]'
-          );
+    for (const entry of tipEntries) {
+      const first   = parseInt(entry.first,  10) || 0;
+      const second  = parseInt(entry.second, 10) || 0;
+      const third   = parseInt(entry.third,  10) || 0;
+      const dogName = (entry.dog_name || '').trim();
+      const raceTime = normaliseTime(entry.race_time_24 || entry.race_time || '');
 
-          rows.forEach(row => {
-            // Trap number: from trap image src (t1.gif, t2.gif etc)
-            const trapImg = row.querySelector('img[src*="/trap/"]');
-            const trap = trapImg
-              ? parseInt((trapImg.getAttribute('src') || '').match(/t(\d)\.gif/)?.[1] || '0', 10)
-              : 0;
+      if (!first && !second && !third) continue; // no tip for this race
 
-            if (!trap || trap < 1 || trap > 6) return;
+      // Match to our Timeform race card by time (+ dog name for disambiguation)
+      const matchedRace = findMatchingRace(races, raceTime, dogName);
 
-            // Dog name from the row text
-            const dogName = (row.querySelector(
-              '[class*="dog"], [class*="runner"], [class*="name"], td:nth-child(2)'
-            ) || row).innerText.trim().split('\n')[0].trim();
+      const runnerName = (trap) => {
+        if (!trap || !matchedRace) return '';
+        return matchedRace.runners?.find(r => r.trap === trap)?.name || '';
+      };
 
-            // Position label: look for 1st / 2nd / 3rd text
-            const rowText = row.innerText || '';
-            let position  = 1; // default win
-            if (/\b(2nd|second)\b/i.test(rowText)) position = 2;
-            else if (/\b(3rd|third)\b/i.test(rowText)) position = 3;
-            else if (/\b(1st|first|win|nap)\b/i.test(rowText)) position = 1;
-
-            results.push({ trap, dogName, position, raceId });
-          });
-
-          // Strategy 2: if no rows, look for trap images anywhere on the tips tab
-          if (!results.length) {
-            const tipsSection = document.querySelector(
-              '.tab-tips, [class*="tab-tips"], #tips, [data-tab="tips"]'
-            );
-            if (tipsSection) {
-              const imgs = tipsSection.querySelectorAll('img[src*="/trap/"]');
-              imgs.forEach((img, i) => {
-                const trap = parseInt((img.getAttribute('src') || '').match(/t(\d)\.gif/)?.[1] || '0', 10);
-                if (!trap || trap < 1 || trap > 6) return;
-                // Infer position from order (first = 1st, second = 2nd, third = 3rd)
-                const position = i + 1 <= 3 ? i + 1 : 3;
-                const container = img.closest('tr, li, div') || img;
-                const dogName   = container.innerText.trim().split('\n')[0].trim();
-                results.push({ trap, dogName, position, raceId });
-              });
-            }
-          }
-
-          return results;
-        }, raceInfo.race_id);
-
-        // Try to match to our known races using context from the link
-        const matchedRace = matchRaceByContext(races, raceInfo.context, today);
-
-        for (const t of raceTips) {
-          // Find the runner in matched race by trap number
-          const runner = matchedRace?.runners?.find(r => r.trap === t.trap);
-          const dogName = runner?.name || t.dogName || `Trap ${t.trap}`;
-
-          tips.push({
-            source:      SOURCE,
-            sourceName:  SOURCE_NAME,
-            dogName,
-            trapNumber:  t.trap,
-            venue:       matchedRace?.venue || '',
-            raceTime:    matchedRace?.time  || '',
-            position:    t.position,
-          });
-        }
-
-        console.log(`[RPScraper] Race ${raceInfo.race_id}: ${raceTips.length} tips`);
-
-        // Small delay between races to be polite
-        await new Promise(r => setTimeout(r, 500));
-
-      } catch (err) {
-        console.warn(`[RPScraper] Race ${raceInfo.race_id} failed: ${err.message}`);
+      if (first > 0) {
+        tips.push({
+          source:     SOURCE,
+          sourceName: SOURCE_NAME,
+          dogName:    runnerName(first) || dogName,
+          trapNumber: first,
+          venue:      matchedRace?.venue || '',
+          raceTime,
+          position:   1,
+        });
+      }
+      if (second > 0) {
+        tips.push({
+          source:     SOURCE,
+          sourceName: SOURCE_NAME,
+          dogName:    runnerName(second),
+          trapNumber: second,
+          venue:      matchedRace?.venue || '',
+          raceTime,
+          position:   2,
+        });
+      }
+      if (third > 0) {
+        tips.push({
+          source:     SOURCE,
+          sourceName: SOURCE_NAME,
+          dogName:    runnerName(third),
+          trapNumber: third,
+          venue:      matchedRace?.venue || '',
+          raceTime,
+          position:   3,
+        });
       }
     }
+
+    console.log(`[RPScraper] Total tips extracted: ${tips.length}`);
 
   } catch (err) {
     console.error('[RPScraper] Fatal error:', err.message);
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 
-  console.log(`[RPScraper] Total tips extracted: ${tips.length}`);
   return tips;
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Poll until condition() returns truthy or timeout ms elapses. */
+function waitForCondition(condition, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const start    = Date.now();
+    const interval = setInterval(() => {
+      if (condition()) {
+        clearInterval(interval);
+        resolve();
+      } else if (Date.now() - start >= timeout) {
+        clearInterval(interval);
+        reject(new Error('waitForCondition timed out'));
+      }
+    }, 200);
+  });
+}
+
+/** Normalise race time to HH:MM (zero-pad single-digit hours). */
+function normaliseTime(t) {
+  const m = (t || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return t;
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
 /**
- * Try to match a Racing Post race (from link context text) to one of our
- * scraped races by venue name and/or time.
+ * Match a Racing Post tip entry to one of our Timeform race cards.
+ * Primary key: raceTime (HH:MM). Disambiguate by dog name if needed.
  */
-function matchRaceByContext(races, contextText, today) {
-  if (!races || !races.length || !contextText) return null;
-  const text = contextText.toLowerCase();
+function findMatchingRace(races, raceTime, dogName) {
+  if (!races?.length || !raceTime) return null;
 
-  // Extract time from context (HH:MM)
-  const timeMatch = text.match(/(\d{1,2})[:.h](\d{2})/);
-  const time      = timeMatch
-    ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
-    : '';
+  const byTime = races.filter(r => r.time === raceTime);
+  if (!byTime.length) return null;
+  if (byTime.length === 1) return byTime[0];
 
-  // Try venue match + time match
-  for (const race of races) {
-    const venue = race.venue.toLowerCase();
-    if (time && race.time === time && text.includes(venue)) return race;
+  // Multiple races at same time — try dog name
+  if (dogName) {
+    const norm = dogName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const hit  = byTime.find(race =>
+      race.runners?.some(r => r.name.toLowerCase().replace(/[^a-z0-9]/g, '') === norm)
+    );
+    if (hit) return hit;
   }
-  // Time only
-  if (time) {
-    const byTime = races.filter(r => r.time === time);
-    if (byTime.length === 1) return byTime[0];
-  }
-  return null;
+
+  return byTime[0];
 }
 
 module.exports = { scrapeRacingPostTips };
