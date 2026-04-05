@@ -3,30 +3,29 @@
 /**
  * At The Races greyhound verdict scraper.
  *
- * greyhounds.attheraces.com is a React SPA — axios/cheerio cannot render it.
- * We use Puppeteer to load the tips listing page, wait for React to hydrate,
- * then parse the Verdict / "1st-2nd-3rd:" sections from the DOM.
+ * The ATR tips listing page (/tips) is blocked by Fastly bot protection.
+ * Individual racecard pages load fine with Puppeteer.
  *
- * Verdict HTML structure (confirmed via debug):
+ * Strategy:
+ *   1. Receive today's races (already scraped from Timeform) as input.
+ *   2. Construct an ATR racecard URL for each race using venue + date + time.
+ *      URL format: /racecard/GB/{venue}/{DD-Month-YYYY}/{HHMM}
+ *   3. Open ONE browser, reuse a single page, navigate to each racecard URL.
+ *   4. Wait for React to hydrate, parse the "1st-2nd-3rd:" verdict section.
+ *   5. Return tip objects with source='attheraces'.
+ *
+ * Confirmed verdict HTML structure (from atrVerdictDebug.js output):
  *   <h3 class="font-bold">1st-2nd-3rd:</h3>
  *   <div>
- *     <div class="flex bg-brand-navy">           ← one pick row
- *       <div ...>
- *         <div class="... bg-brand-gold-dark ...">
- *           <span ...>
- *             <span class="type-heading-b">1</span>   ← position number
- *             <span class="type-body-sm font-bold">st</span>
- *           </span>
- *         </div>
- *       </div>
- *       <div class="flex items-center ... px-3 py-2.5">
- *         <span data-theme="trap-2" ...>2</span>      ← trap number
- *         <h3 class="inline type-heading-e">
- *           <span>Salacres Tipster</span>             ← dog name
- *         </h3>
- *       </div>
+ *     <div class="flex bg-brand-navy">           ← one pick row per position
+ *       <!-- position badge -->
+ *       <span class="type-heading-b">1</span>
+ *       <!-- trap circle -->
+ *       <span data-theme="trap-2">2</span>
+ *       <!-- dog name -->
+ *       <h3 class="inline type-heading-e"><span>Salacres Tipster</span></h3>
  *     </div>
- *     ... (2nd and 3rd pick rows follow same pattern)
+ *     ... repeated for 2nd and 3rd
  *   </div>
  */
 
@@ -35,7 +34,7 @@ try { puppeteer = require('puppeteer'); } catch (_) { puppeteer = null; }
 
 const SOURCE      = 'attheraces';
 const SOURCE_NAME = 'At The Races';
-const TIPS_URL    = 'https://greyhounds.attheraces.com/tips';
+const BASE_URL    = 'https://greyhounds.attheraces.com';
 
 const CHROMIUM_PATHS = [
   '/usr/bin/chromium-browser',
@@ -71,16 +70,101 @@ async function launchBrowser() {
   return puppeteer.launch(opts);
 }
 
+// ── URL construction ──────────────────────────────────────────────────────────
+
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
+/**
+ * Build an ATR racecard URL from a race object.
+ * race.date = "YYYY-MM-DD", race.time = "HH:MM", race.venue = "Towcester"
+ * → https://greyhounds.attheraces.com/racecard/GB/towcester/05-April-2026/1743
+ */
+function buildAtrUrl(race) {
+  const venueSlug = (race.venue || '')
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+
+  const [year, month, day] = (race.date || '').split('-');
+  if (!year || !month || !day) return null;
+
+  const monthName = MONTH_NAMES[parseInt(month, 10) - 1];
+  if (!monthName) return null;
+
+  const dateStr = `${day}-${monthName}-${year}`;
+  const timeStr = (race.time || '').replace(':', '');
+
+  if (!venueSlug || !timeStr) return null;
+
+  return `${BASE_URL}/racecard/GB/${venueSlug}/${dateStr}/${timeStr}`;
+}
+
+// ── Verdict page parser (runs inside page.evaluate) ──────────────────────────
+
+function parseVerdictFromPage() {
+  const results = [];
+
+  // Find the "1st-2nd-3rd:" heading
+  const header = [...document.querySelectorAll('h3')]
+    .find(h => h.textContent.trim() === '1st-2nd-3rd:');
+
+  if (!header) return results;
+
+  // Picks container is the next sibling element
+  const picksContainer = header.nextElementSibling;
+  if (!picksContainer) return results;
+
+  // Each pick row has bg-brand-navy in its classes
+  const pickRows = [...picksContainer.querySelectorAll('div')]
+    .filter(d => typeof d.className === 'string' && d.className.includes('bg-brand-navy'));
+
+  for (const row of pickRows) {
+    // Position: span.type-heading-b — contains "1", "2", or "3"
+    const posEl    = row.querySelector('span.type-heading-b');
+    const position = parseInt(posEl?.textContent?.trim() || '0', 10);
+    if (!position || position > 3) continue;
+
+    // Trap: span with data-theme="trap-N"
+    const trapEl  = row.querySelector('[data-theme^="trap-"]');
+    const trapStr = trapEl ? trapEl.getAttribute('data-theme').replace('trap-', '') : '';
+    const trap    = trapStr ? parseInt(trapStr, 10) : null;
+
+    // Dog name: first h3 inside the row → first span text
+    const nameH3  = row.querySelector('h3');
+    const dogName = (
+      nameH3?.querySelector('span')?.textContent ||
+      nameH3?.textContent || ''
+    ).trim();
+
+    if (!dogName || dogName.length < 2) continue;
+
+    results.push({ position, trap, dogName });
+  }
+
+  return results;
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
-async function scrapeAtTheRacesTips() {
+/**
+ * @param {Array} races  — today's race objects from Timeform (need .venue, .date, .time)
+ */
+async function scrapeAtTheRacesTips(races) {
   if (!puppeteer) {
     console.warn('[ATRScraper] puppeteer not installed — skipping ATR tips');
     return [];
   }
 
-  const tips = [];
-  let browser;
+  if (!races || !races.length) {
+    console.warn('[ATRScraper] No races provided — skipping');
+    return [];
+  }
+
+  const tips    = [];
+  let   browser;
 
   try {
     browser = await launchBrowser();
@@ -92,90 +176,47 @@ async function scrapeAtTheRacesTips() {
     );
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
 
-    // Block images/fonts/media
+    // Block images/fonts/media to save memory
     await page.setRequestInterception(true);
     page.on('request', req => {
       if (['image', 'font', 'media'].includes(req.resourceType())) req.abort();
       else req.continue();
     });
 
-    console.log('[ATRScraper] Loading ATR tips page…');
-    await page.goto(TIPS_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    let pagesLoaded = 0;
 
-    // Wait for React to render verdict sections
-    await new Promise(r => setTimeout(r, 6000));
+    for (const race of races) {
+      const url = buildAtrUrl(race);
+      if (!url) continue;
 
-    // ── Parse all verdict sections from the rendered DOM ──────────────────────
-    const rawTips = await page.evaluate(() => {
-      const results = [];
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        // Wait for React to render the verdict section
+        await new Promise(r => setTimeout(r, 4000));
 
-      // Find every "1st-2nd-3rd:" header — one per race with a verdict
-      const headers = [...document.querySelectorAll('h3')].filter(
-        h => h.textContent.trim() === '1st-2nd-3rd:'
-      );
+        const picks = await page.evaluate(parseVerdictFromPage);
 
-      for (const header of headers) {
-        // Walk up to find venue/time context (grab text from nearest section/article/div)
-        let contextEl = header.parentElement;
-        for (let i = 0; i < 8; i++) {
-          if (!contextEl) break;
-          const t = contextEl.innerText || '';
-          // Stop when we have enough context (venue + time likely present)
-          if (t.length > 100) break;
-          contextEl = contextEl.parentElement;
+        if (picks.length) {
+          console.log(`[ATRScraper] ${race.venue} ${race.time}: ${picks.length} picks`);
+          for (const pick of picks) {
+            tips.push({
+              source:     SOURCE,
+              sourceName: SOURCE_NAME,
+              dogName:    pick.dogName,
+              venue:      race.venue,
+              raceTime:   race.time,
+              position:   pick.position,
+            });
+          }
         }
-        const contextText = contextEl?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 400) || '';
 
-        // The picks container is the next sibling div after the h3
-        const picksContainer = header.nextElementSibling;
-        if (!picksContainer) continue;
-
-        // Each pick row contains bg-brand-navy in its class list
-        const pickRows = [...picksContainer.querySelectorAll('div')].filter(
-          d => d.className && typeof d.className === 'string' && d.className.includes('bg-brand-navy')
-        );
-
-        for (const row of pickRows) {
-          // Position: span.type-heading-b contains "1", "2", or "3"
-          const posEl = row.querySelector('span.type-heading-b');
-          const position = parseInt(posEl?.textContent?.trim() || '0', 10);
-          if (!position || position > 3) continue;
-
-          // Trap: span with data-theme="trap-N"
-          const trapEl = row.querySelector('[data-theme^="trap-"]');
-          const trapAttr = trapEl ? trapEl.getAttribute('data-theme') : '';
-          const trap = trapAttr ? parseInt(trapAttr.replace('trap-', ''), 10) : null;
-
-          // Dog name: h3 with class containing "type-heading-e" → first span text
-          const nameH3 = row.querySelector('h3');
-          const dogName = (nameH3?.querySelector('span')?.textContent || nameH3?.textContent || '').trim();
-
-          if (!dogName || dogName.length < 2) continue;
-
-          results.push({ position, trap, dogName, contextText });
-        }
+        pagesLoaded++;
+      } catch (err) {
+        console.warn(`[ATRScraper] ${race.venue} ${race.time} failed: ${err.message}`);
       }
-
-      return results;
-    });
-
-    console.log(`[ATRScraper] ${rawTips.length} raw picks found in DOM`);
-
-    // ── Convert raw picks to tip objects ──────────────────────────────────────
-    for (const rt of rawTips) {
-      const venue    = extractVenueFromText(rt.contextText);
-      const raceTime = extractTimeFromText(rt.contextText);
-      tips.push({
-        source:     SOURCE,
-        sourceName: SOURCE_NAME,
-        dogName:    rt.dogName,
-        venue,
-        raceTime,
-        position:   rt.position,
-      });
     }
 
-    console.log(`[ATRScraper] Total tips extracted: ${tips.length}`);
+    console.log(`[ATRScraper] Scraped ${pagesLoaded} pages, ${tips.length} total tips`);
 
   } catch (err) {
     console.error('[ATRScraper] Fatal error:', err.message);
@@ -184,27 +225,6 @@ async function scrapeAtTheRacesTips() {
   }
 
   return tips;
-}
-
-// ── Text helpers (duplicated from scraper.js to keep this module self-contained) ─
-
-const UK_VENUES = [
-  'Romford','Wimbledon','Crayford','Hove','Belle Vue','Nottingham',
-  'Swindon','Monmore','Oxford','Perry Barr','Poole','Sheffield',
-  'Towcester','Newcastle','Doncaster','Yarmouth','Kinsley',
-];
-
-function extractVenueFromText(text) {
-  const t = (text || '').toLowerCase();
-  for (const v of UK_VENUES) {
-    if (t.includes(v.toLowerCase())) return v;
-  }
-  return '';
-}
-
-function extractTimeFromText(text) {
-  const m = (text || '').match(/\b(\d{1,2})[:.h](\d{2})\b/);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : '';
 }
 
 module.exports = { scrapeAtTheRacesTips };
