@@ -173,18 +173,17 @@ async function scrapeAtTheRaces() {
 async function fetchAllTips(races) {
   const allTips = [];
 
-  // Both ATR and RP scrapers use Puppeteer — skip on resource-constrained servers
-  // Run sequentially to avoid two Chromium instances competing for memory
+  // OLBG uses plain axios — always run it
+  const { scrapeOlbgTips } = require('./olbgScraper');
+  const olbgTips = await scrapeOlbgTips().catch(err => {
+    console.warn('[Scraper] OLBG failed:', err.message);
+    return [];
+  });
+  allTips.push(...olbgTips);
+
+  // RP scraper uses Puppeteer — skip on resource-constrained servers
   if (process.env.SKIP_RP_TIPS !== 'true') {
-    const { scrapeAtTheRacesTips } = require('./atrScraper');
     const { scrapeRacingPostTips } = require('./racingPostScraper');
-
-    const atrTips = await scrapeAtTheRacesTips(races || []).catch(err => {
-      console.warn('[Scraper] ATR failed:', err.message);
-      return [];
-    });
-    allTips.push(...atrTips);
-
     const rpTips = await scrapeRacingPostTips(races || []).catch(err => {
       console.warn('[Scraper] RP failed:', err.message);
       return [];
