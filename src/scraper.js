@@ -171,11 +171,13 @@ async function scrapeAtTheRaces() {
  * scraper so it can match tips by trap number back to dog names.
  */
 async function fetchAllTips(races) {
-  const scrapers = [scrapeAtTheRaces()];
+  const scrapers = [];
 
-  // RP scraper requires Puppeteer + Chromium — skip on resource-constrained servers
+  // Both ATR and RP scrapers use Puppeteer — skip on resource-constrained servers
   if (process.env.SKIP_RP_TIPS !== 'true') {
+    const { scrapeAtTheRacesTips } = require('./atrScraper');
     const { scrapeRacingPostTips } = require('./racingPostScraper');
+    scrapers.push(scrapeAtTheRacesTips());
     scrapers.push(scrapeRacingPostTips(races || []));
   }
 
