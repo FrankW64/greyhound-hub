@@ -241,11 +241,11 @@ function parseAnalystVerdict($, runners) {
   const tips       = [];
   const pickedNorm = new Set();
 
-  // Extract structured 2nd and 3rd picks
+  // Extract all structured picks (1st, 2nd, 3rd) from verdict selection elements
   $('.rpf-verdict-selection').each((_, el) => {
     const predText = $(el).find('b.rpf-verdict-selection-prediction').text().trim();
     const position = parseInt(predText, 10);
-    if (!position || position < 2) return;
+    if (!position) return;
 
     const trap    = parseInt($(el).find('img.rpf-verdict-selection-trap').attr('alt') || '0', 10) || null;
     const dogName = normalise($(el).find('.rpf-verdict-selection-name a').text());
@@ -255,15 +255,18 @@ function parseAnalystVerdict($, runners) {
     pickedNorm.add(dogName.toLowerCase().replace(/[^a-z0-9]/g, ''));
   });
 
-  // Find 1st pick from verdict text — the runner whose name appears but isn't 2nd/3rd
-  const verdictText = ($('.rpf-verdict').text() || '').toLowerCase();
-  if (verdictText && runners.length) {
-    for (const runner of runners) {
-      const norm = runner.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (pickedNorm.has(norm)) continue;
-      if (verdictText.includes(runner.name.toLowerCase())) {
-        tips.push({ position: 1, trap: runner.trap, dogName: runner.name });
-        break;
+  // Fallback: find 1st pick from verdict text if not found in structured elements
+  const hasFirst = tips.some(t => t.position === 1);
+  if (!hasFirst) {
+    const verdictText = ($('.rpf-verdict').text() || '').toLowerCase();
+    if (verdictText && runners.length) {
+      for (const runner of runners) {
+        const norm = runner.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (pickedNorm.has(norm)) continue;
+        if (verdictText.includes(runner.name.toLowerCase())) {
+          tips.push({ position: 1, trap: runner.trap, dogName: runner.name });
+          break;
+        }
       }
     }
   }
