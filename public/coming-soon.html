@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Greyhound Hub — Coming Soon</title>
+  <link rel="icon" href="logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --bg-card:   #1a1d27;
+      --border:    #2a2d3a;
+      --text:      #e8eaf0;
+      --muted:     #8b8fa8;
+      --dim:       #5a5e72;
+      --accent:    #4f8cff;
+      --gold:      #f0a500;
+      --green:     #27ae60;
+      --red:       #e74c3c;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+      line-height: 1.5;
+    }
+
+    /* ── Subtle background pattern ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% -10%, #4f8cff0d 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 100%, #f0a5000a 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page-wrap {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    /* ── Logo / brand ── */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 48px;
+    }
+
+    .brand-logo {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+    }
+
+    .brand-name {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+
+    /* ── Main headline ── */
+    .headline {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .headline h1 {
+      font-size: clamp(2.4rem, 8vw, 3.6rem);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      background: linear-gradient(135deg, var(--text) 30%, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 16px;
+    }
+
+    .headline p {
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 420px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+
+    /* ── Feature pills ── */
+    .features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin: 32px 0 40px;
+    }
+
+    .feature-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .feature-pill .icon { font-size: 0.9rem; }
+
+    /* ── Access card ── */
+    .access-card {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+
+    .access-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--dim);
+      margin-bottom: 16px;
+    }
+
+    .access-form {
+      display: flex;
+      gap: 10px;
+    }
+
+    .access-input {
+      flex: 1;
+      background: #ffffff08;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    .access-input:focus {
+      border-color: var(--accent);
+    }
+
+    .access-input::placeholder {
+      color: var(--dim);
+    }
+
+    .access-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+
+    .access-btn:hover  { opacity: 0.88; }
+    .access-btn:active { transform: scale(0.97); }
+
+    /* ── Error state ── */
+    .access-error {
+      margin-top: 12px;
+      font-size: 0.82rem;
+      color: var(--red);
+      display: none;
+    }
+
+    .access-error.visible { display: block; }
+
+    /* ── Notify section ── */
+    .notify-wrap {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .notify-label {
+      font-size: 0.75rem;
+      color: var(--dim);
+      margin-bottom: 10px;
+    }
+
+    .notify-form {
+      display: flex;
+      gap: 8px;
+    }
+
+    .notify-input {
+      flex: 1;
+      background: #ffffff05;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+
+    .notify-input:focus   { border-color: var(--accent); }
+    .notify-input::placeholder { color: var(--dim); }
+
+    .notify-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .notify-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .notify-thanks {
+      font-size: 0.78rem;
+      color: var(--green);
+      display: none;
+      margin-top: 8px;
+    }
+
+    /* ── Trap colour decoration ── */
+    .trap-strip {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 36px;
+    }
+
+    .trap-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      opacity: 0.6;
+    }
+
+    /* ── Footer ── */
+    .cs-footer {
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--dim);
+      line-height: 1.7;
+      max-width: 400px;
+    }
+
+    .cs-footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .cs-footer a:hover { text-decoration: underline; }
+
+    .footer-badges {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .footer-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-decoration: none !important;
+    }
+
+    .badge-18   { background: var(--red); color: #fff; }
+    .badge-bga  { background: #2e7d32; color: #fff; }
+    .badge-gc   { background: #1565c0; color: #fff; }
+
+    @media (max-width: 480px) {
+      .access-card   { padding: 22px 18px; }
+      .access-form   { flex-direction: column; }
+      .brand-logo    { width: 42px; height: 42px; }
+      .brand-name    { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <!-- Brand -->
+    <div class="brand">
+      <img src="logo.png" alt="Greyhound Hub" class="brand-logo" onerror="this.style.display='none'" />
+      <span class="brand-name">Greyhound Hub</span>
+    </div>
+
+    <!-- Trap colour bar (decorative) -->
+    <div class="trap-strip">
+      <div class="trap-dot" style="background:#cc0000"></div>
+      <div class="trap-dot" style="background:#1a47a0"></div>
+      <div class="trap-dot" style="background:#d0d0d0"></div>
+      <div class="trap-dot" style="background:#555"></div>
+      <div class="trap-dot" style="background:#e87c00"></div>
+      <div class="trap-dot" style="background:#888"></div>
+    </div>
+
+    <!-- Headline -->
+    <div class="headline">
+      <h1>Coming Soon</h1>
+      <p>The UK's smartest greyhound racing tips dashboard. Live race cards, expert tips, and trap bias data — all in one place.</p>
+    </div>
+
+    <!-- Feature pills -->
+    <div class="features">
+      <span class="feature-pill"><span class="icon">🏟️</span> All UK Venues</span>
+      <span class="feature-pill"><span class="icon">⭐</span> Best Bet Alerts</span>
+      <span class="feature-pill"><span class="icon">📊</span> Trap Bias Stats</span>
+      <span class="feature-pill"><span class="icon">🎯</span> 3 Tip Sources</span>
+      <span class="feature-pill"><span class="icon">📈</span> Tipster Accuracy</span>
+      <span class="feature-pill"><span class="icon">🔔</span> Each Way Outsiders</span>
+    </div>
+
+    <!-- Access card -->
+    <div class="access-card">
+      <div class="access-label">Early Access</div>
+      <form class="access-form" method="POST" action="/auth" id="access-form">
+        <input
+          class="access-input"
+          type="password"
+          name="password"
+          id="password-input"
+          placeholder="Enter access code"
+          autocomplete="current-password"
+          required
+        />
+        <button class="access-btn" type="submit">Enter →</button>
+      </form>
+      <div class="access-error" id="access-error">
+        Incorrect access code. Please try again.
+      </div>
+
+      <!-- Notify -->
+      <div class="notify-wrap">
+        <div class="notify-label">Not got the code? Get notified when we launch:</div>
+        <form class="notify-form" id="notify-form">
+          <input
+            class="notify-input"
+            type="email"
+            placeholder="your@email.com"
+            id="notify-email"
+          />
+          <button class="notify-btn" type="submit">Notify me</button>
+        </form>
+        <div class="notify-thanks" id="notify-thanks">✓ You're on the list!</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="cs-footer">
+      <div class="footer-badges">
+        <span class="footer-badge badge-18">18+</span>
+        <a href="https://www.begambleaware.org" target="_blank" rel="noopener noreferrer" class="footer-badge badge-bga">BeGambleAware</a>
+        <a href="https://www.gamcare.org.uk" target="_blank" rel="noopener noreferrer" class="footer-badge badge-gc">GamCare</a>
+      </div>
+      <p>Please gamble responsibly. Greyhound Hub is an information service only.</p>
+    </div>
+
+  </div>
+
+  <script>
+    // Show error if ?error=1 in URL
+    if (new URLSearchParams(window.location.search).get('error') === '1') {
+      document.getElementById('access-error').classList.add('visible');
+      document.getElementById('password-input').focus();
+    }
+
+    // Notify form (client-side only for now — just shows thanks)
+    document.getElementById('notify-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const email = document.getElementById('notify-email').value;
+      if (!email) return;
+      document.getElementById('notify-form').style.display = 'none';
+      document.getElementById('notify-thanks').style.display = 'block';
+    });
+  </script>
+</body>
+</html>
