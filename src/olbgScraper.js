@@ -16,8 +16,7 @@
  *   expired           — 0 if race is still upcoming
  */
 
-const axios   = require('axios');
-const cheerio = require('cheerio');
+const axios = require('axios');
 
 const SOURCE      = 'olbg';
 const SOURCE_NAME = 'OLBG';
@@ -46,47 +45,35 @@ async function scrapeOlbgTips() {
     // or inline as:  __sveltekit_XXX={...}
     // We search all <script> tags for JSON containing our selection keys.
 
-    const $ = cheerio.load(html);
     let entries = [];
 
-    $('script').each((_, el) => {
-      const src = $(el).html() || '';
+    // OLBG embeds data as JS object literals with unquoted keys, e.g.:
+    //   event_name_alias:"12:18 Romford",team_name:"M Girl",win_tips:3,ew_tips:0,expired:0
+    // We extract each team_name + event_name_alias pair from the raw HTML.
+    const teamMatches = [...html.matchAll(/event_name_alias:"([^"]+)"[^}]*?team_name:"([^"]+)"/g)];
+    for (const m of teamMatches) {
+      const alias   = m[1];
+      const dogName = m[2];
 
-      // Look for sveltekit data blob or any script mentioning "selection"
-      if (!src.includes('selection') || !src.includes('event_name_alias')) return;
+      // Extract win_tips and ew_tips from nearby context (within 200 chars)
+      const ctx = html.slice(m.index, m.index + 300);
+      const winM = ctx.match(/win_tips:(\d+)/);
+      const ewM  = ctx.match(/ew_tips:(\d+)/);
+      const expM = ctx.match(/expired:(\d+)/);
 
-      // Extract all JSON-like objects that have both "selection" and "event_name_alias"
-      // Strategy: find every {...} block containing both keys
-      const matches = src.matchAll(/\{[^{}]*"selection"\s*:\s*"[^"]+?"[^{}]*"event_name_alias"[^{}]*\}/gs);
-      for (const m of matches) {
-        try {
-          const obj = JSON.parse(m[0]);
-          if (obj.selection && obj.event_name_alias) entries.push(obj);
-        } catch (_) {}
-      }
+      entries.push({
+        event_name_alias: alias,
+        team_name:        dogName,
+        win_tips:  winM  ? parseInt(winM[1],  10) : 0,
+        ew_tips:   ewM   ? parseInt(ewM[1],   10) : 0,
+        expired:   expM  ? parseInt(expM[1],  10) : 0,
+      });
+    }
 
-      // Also try the reverse key order
-      const matches2 = src.matchAll(/\{[^{}]*"event_name_alias"[^{}]*"selection"\s*:\s*"[^"]+?"[^{}]*\}/gs);
-      for (const m of matches2) {
-        try {
-          const obj = JSON.parse(m[0]);
-          if (obj.selection && obj.event_name_alias) entries.push(obj);
-        } catch (_) {}
-      }
-
-      // Fallback: try to parse the entire script as JSON (for dedicated data scripts)
-      if (!entries.length) {
-        try {
-          const json = JSON.parse(src);
-          collectEntries(json, entries);
-        } catch (_) {}
-      }
-    });
-
-    // De-duplicate by selection+event
+    // De-duplicate by dog+event
     const seen = new Set();
     entries = entries.filter(e => {
-      const key = `${e.selection}|${e.event_name_alias}`;
+      const key = `${e.team_name}|${e.event_name_alias}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -96,13 +83,13 @@ async function scrapeOlbgTips() {
 
     // ── Convert to tip objects ───────────────────────────────────────────────
     for (const entry of entries) {
-      if (!entry.selection || entry.expired) continue;
+      if (!entry.team_name || entry.expired) continue;
 
       // Skip entries with no tips at all
       const totalTips = (entry.win_tips || 0) + (entry.ew_tips || 0);
       if (totalTips === 0) continue;
 
-      const dogName  = entry.selection.trim();
+      const dogName  = entry.team_name.trim();
       const alias    = entry.event_name_alias || ''; // "6:02 Towcester"
 
       const venue    = extractVenueFromAlias(alias);
@@ -123,18 +110,6 @@ async function scrapeOlbgTips() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Recursively walk parsed JSON to collect objects with selection + event_name_alias.
- */
-function collectEntries(node, out) {
-  if (!node || typeof node !== 'object') return;
-  if (Array.isArray(node)) { node.forEach(n => collectEntries(n, out)); return; }
-  if (node.selection && node.event_name_alias) { out.push(node); return; }
-  for (const v of Object.values(node)) {
-    if (v && typeof v === 'object') collectEntries(v, out);
-  }
-}
 
 /**
  * Extract venue name from "6:02 Towcester" or "6:11 Star Pelaw" style alias.
