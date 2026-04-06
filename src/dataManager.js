@@ -16,6 +16,7 @@ const BetfairClient          = require('./betfair');
 const { fetchAllTips }       = require('./scraper');
 const { fetchRaceCards, fetchTodaysResults } = require('./racecardScraper');
 const ResultsTracker         = require('./resultsTracker');
+const { fetchGbgbResults }   = require('./gbgbResults');
 
 class DataManager {
   constructor() {
@@ -143,14 +144,19 @@ class DataManager {
       // Snapshot tips for new races (persisted; first snapshot wins)
       if (this.resultsTracker) this.resultsTracker.snapshotTips(races);
 
-      // Register live markets for post-race result detection
-      if (!this.useMockData) {
+      // Register live markets for post-race result detection (Betfair mode)
+      if (!this.useMockData && !this.useScraperMode) {
         for (const race of races) {
           if (race.marketId && !this._pendingResults.has(race.marketId)) {
             this._pendingResults.set(race.marketId, race);
           }
         }
         await this._checkPendingResults();
+      }
+
+      // Scraper mode: check GBGB API for settled results and record them
+      if (this.useScraperMode && this.resultsTracker) {
+        await this._checkGbgbResults(races);
       }
 
       this.races       = races;
@@ -211,6 +217,35 @@ class DataManager {
   }
 
   // ── Results detection ───────────────────────────────────────────────────────
+
+  /**
+   * Scraper mode: fetch today's GBGB results and record any winners we
+   * haven't seen yet. Matches by venue name + race time against current races.
+   */
+  async _checkGbgbResults(races) {
+    try {
+      const gbgbResults = await fetchGbgbResults();
+      if (!gbgbResults.length) return;
+
+      const alreadySettled = this.resultsTracker.getTodaysResults();
+
+      for (const result of gbgbResults) {
+        // Find the matching race in our list by venue + time
+        const race = races.find(r =>
+          r.time === result.raceTime &&
+          r.venue.toLowerCase().replace(/[^a-z]/g, '') ===
+            result.venue.toLowerCase().replace(/[^a-z]/g, '')
+        );
+
+        if (!race) continue;
+        if (alreadySettled[race.id]) continue; // already recorded
+
+        this.resultsTracker.recordResult(race, null, result.winnerName);
+      }
+    } catch (err) {
+      console.warn('[DataManager] GBGB results check error:', err.message);
+    }
+  }
 
   async _checkPendingResults() {
     const now = Date.now();
