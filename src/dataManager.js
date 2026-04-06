@@ -398,6 +398,7 @@ const SOURCE_NAMES = {
   timeform:   'Timeform',
   racingpost: 'Racing Post',
   olbg:       'OLBG',
+  everytip:   'EveryTip',
 };
 
 function buildMockTips(races) {

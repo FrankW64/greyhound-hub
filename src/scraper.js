@@ -113,13 +113,14 @@ async function scrapeTimeform() {
 async function fetchAllTips(races) {
   const allTips = [];
 
-  // OLBG uses plain axios — always run it
-  const { scrapeOlbgTips } = require('./olbgScraper');
-  const olbgTips = await scrapeOlbgTips().catch(err => {
-    console.warn('[Scraper] OLBG failed:', err.message);
-    return [];
-  });
-  allTips.push(...olbgTips);
+  // OLBG and EveryTip use plain axios — always run them in parallel
+  const { scrapeOlbgTips }    = require('./olbgScraper');
+  const { scrapeEverytipTips } = require('./everytipScraper');
+  const [olbgTips, everytipTips] = await Promise.all([
+    scrapeOlbgTips().catch(err => { console.warn('[Scraper] OLBG failed:', err.message); return []; }),
+    scrapeEverytipTips().catch(err => { console.warn('[Scraper] EveryTip failed:', err.message); return []; }),
+  ]);
+  allTips.push(...olbgTips, ...everytipTips);
 
   // RP scraper uses Puppeteer — skip on resource-constrained servers
   if (process.env.SKIP_RP_TIPS !== 'true') {
