@@ -83,8 +83,8 @@ function renderAccuracy(s) {
 
   meta.textContent = `${s.days}-day window · ${s.settledRaces} settled race${s.settledRaces !== 1 ? 's' : ''}`;
 
-  const SOURCE_LABELS = { timeform: 'TF', attheraces: 'ATR', racingpost: 'RP' };
-  const SOURCE_ORDER  = ['timeform', 'attheraces', 'racingpost'];
+  const SOURCE_LABELS = { timeform: 'Timeform', racingpost: 'Racing Post', olbg: 'OLBG', everytip: 'EveryTip' };
+  const SOURCE_ORDER  = ['racingpost', 'olbg', 'everytip', 'timeform'];
 
   function makeCard(label, wins, tips, rate, highlight = false) {
     const div = document.createElement('div');
