@@ -204,14 +204,19 @@ body {
 /* Tip sources */
 .sources-list {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .source-item {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff0a;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
 }
 
 .source-tag {
@@ -219,25 +224,20 @@ body {
   background: #ffffff0f;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 4px;
-  margin-top: 1px;
   letter-spacing: 0.04em;
 }
 
 .source-item strong {
-  display: block;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text);
-  margin-bottom: 2px;
 }
 
 .source-item p {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  line-height: 1.4;
+  display: none;
 }
 
 /* Badge explanations */

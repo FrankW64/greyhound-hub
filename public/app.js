@@ -99,7 +99,7 @@ function renderAccuracy(s) {
   meta.textContent = `${s.days}-day window · ${s.settledRaces} settled race${s.settledRaces !== 1 ? 's' : ''}`;
 
   const SOURCE_LABELS = { timeform: 'Timeform', racingpost: 'Racing Post', olbg: 'OLBG', everytip: 'EveryTip' };
-  const SOURCE_ORDER  = ['racingpost', 'olbg', 'everytip', 'timeform'];
+  const SOURCE_ORDER  = ['timeform', 'racingpost', 'everytip', 'olbg'];
 
   function makeCard(label, wins, tips, rate, highlight = false) {
     const div = document.createElement('div');
