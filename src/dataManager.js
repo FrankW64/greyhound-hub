@@ -282,7 +282,11 @@ class DataManager {
     venueMap.forEach(list => list.sort((a, b) => a.time.localeCompare(b.time)));
 
     const venues = [...venueMap.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([, racesA], [, racesB]) => {
+        const firstA = racesA[0]?.time || '';
+        const firstB = racesB[0]?.time || '';
+        return firstA.localeCompare(firstB);
+      })
       .map(([name, races]) => ({ name, races }));
 
     return { venues, lastUpdated, useMockData, apiStatus: this.getApiStatus() };
