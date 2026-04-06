@@ -104,6 +104,16 @@ body {
   color: var(--text-muted);
 }
 
+.live-clock {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  letter-spacing: 0.02em;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+
 .refresh-bar-wrap {
   width: 80px;
   height: 4px;

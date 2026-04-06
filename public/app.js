@@ -43,7 +43,22 @@ let countdownTimer = null;
 document.addEventListener('DOMContentLoaded', () => {
   fetchRaces();
   startRefreshLoop();
+  startClock();
 });
+
+// ── Live clock ────────────────────────────────────────────────────────────────
+function startClock() {
+  const el = document.getElementById('live-clock');
+  if (!el) return;
+  function tick() {
+    const now = new Date();
+    const date = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    el.textContent = `${date}  ${time}`;
+  }
+  tick();
+  setInterval(tick, 1000);
+}
 
 // ── Data fetch ────────────────────────────────────────────────────────────────
 async function fetchRaces() {
