@@ -60,7 +60,7 @@ async function scrapeEverytipTips() {
       // Get the full inner HTML and split on <br> tags to get individual lines
       const inner = p.html() || '';
       const lines = inner
-        .split(/<br\s*\/?>/i)
+        .split(/<br[^>]*>/i)
         .map(l => cheerio.load(l).text().trim())
         .filter(Boolean);
 
