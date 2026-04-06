@@ -179,8 +179,8 @@ body {
 .info-inner {
   max-width: 1200px;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: auto 1fr 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 28px;
   align-items: start;
 }
