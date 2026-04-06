@@ -55,8 +55,8 @@ async function scrapeOlbgTips() {
       const alias   = m[1];
       const dogName = m[2];
 
-      // Extract win_tips and ew_tips from nearby context (within 200 chars)
-      const ctx = html.slice(m.index, m.index + 300);
+      // Fields may appear before or after the match — look 500 chars each way
+      const ctx = html.slice(Math.max(0, m.index - 500), m.index + 500);
       const winM = ctx.match(/win_tips:(\d+)/);
       const ewM  = ctx.match(/ew_tips:(\d+)/);
       const expM = ctx.match(/expired:(\d+)/);
