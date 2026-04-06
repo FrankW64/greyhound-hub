@@ -325,6 +325,46 @@ body {
 .error-icon { font-size: 2.5rem; }
 
 /* ── Venue sections ──────────────────────────────────────────────────────── */
+/* ── Sort toggle ──────────────────────────────────────────────────────────── */
+.sort-toggle-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+.sort-toggle {
+  display: flex;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.sort-btn {
+  padding: 6px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sort-btn:hover { background: var(--border); color: var(--text); }
+.sort-btn-active { background: var(--accent); color: #fff !important; }
+
+/* ── Race venue label (flat / by-time mode) ───────────────────────────────── */
+.race-venue-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-dim, #ffffff10);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+
 .venue-section { margin-bottom: 36px; }
 
 .venue-header {

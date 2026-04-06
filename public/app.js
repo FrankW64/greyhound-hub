@@ -165,8 +165,20 @@ function resetCountdown() {
   if (bar) bar.style.transform = 'scaleX(1)';
 }
 
+// ── Sort mode ─────────────────────────────────────────────────────────────────
+let sortMode     = 'venue';
+let lastRenderData = null;
+
+function setSortMode(mode) {
+  sortMode = mode;
+  document.getElementById('sort-btn-venue')?.classList.toggle('sort-btn-active', mode === 'venue');
+  document.getElementById('sort-btn-time')?.classList.toggle('sort-btn-active', mode === 'time');
+  if (lastRenderData) render(lastRenderData);
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 function render(data) {
+  lastRenderData = data;
   const container = document.getElementById('races-container');
   const fragment  = document.createDocumentFragment();
   const venues    = data.venues || [];
@@ -176,7 +188,15 @@ function render(data) {
     return;
   }
 
-  for (const venue of venues) fragment.appendChild(renderVenue(venue));
+  if (sortMode === 'time') {
+    // Flatten all races across all venues, sort by time
+    const allRaces = venues.flatMap(v => v.races.map(r => ({ ...r, venue: r.venue || v.name })));
+    allRaces.sort((a, b) => a.time.localeCompare(b.time));
+    for (const race of allRaces) fragment.appendChild(renderRace(race, true));
+  } else {
+    for (const venue of venues) fragment.appendChild(renderVenue(venue));
+  }
+
   container.innerHTML = '';
   container.appendChild(fragment);
 }
@@ -192,10 +212,16 @@ function renderVenue(venue) {
   return el;
 }
 
-function renderRace(race) {
+function renderRace(race, showVenue = false) {
   const node = document.getElementById('tpl-race').content.cloneNode(true);
   const el   = node.querySelector('.race-card');
   el.querySelector('.race-time').textContent     = race.time;
+  const venueLabelEl = el.querySelector('.race-venue-label');
+  if (showVenue && race.venue) {
+    venueLabelEl.textContent = race.venue;
+  } else {
+    venueLabelEl.style.display = 'none';
+  }
   el.querySelector('.race-grade').textContent    = race.grade || '';
   el.querySelector('.race-distance').textContent = race.distance || '';
   const prizeEl = el.querySelector('.race-prize');

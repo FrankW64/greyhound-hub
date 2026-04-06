@@ -154,6 +154,14 @@
       <p id="error-msg">Could not load race data.</p>
       <button onclick="fetchRaces()">Retry</button>
     </div>
+    <!-- Sort toggle -->
+    <div class="sort-toggle-wrap">
+      <div class="sort-toggle" role="group" aria-label="Sort order">
+        <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
+        <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
+      </div>
+    </div>
+
     <div id="races-container"></div>
   </main>
 
@@ -173,6 +181,7 @@
       <div class="race-header">
         <div class="race-time-wrap">
           <span class="race-time"></span>
+          <span class="race-venue-label"></span>
           <span class="race-grade"></span>
         </div>
         <div class="race-details">
