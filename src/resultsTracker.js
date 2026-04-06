@@ -137,7 +137,17 @@ class ResultsTracker {
     const today = new Date().toISOString().split('T')[0];
     const rows  = db.prepare('SELECT * FROM results WHERE race_date = ?').all(today);
     const map   = {};
-    for (const r of rows) map[r.race_id] = r;
+    for (const r of rows) {
+      map[r.race_id] = {
+        raceId:             r.race_id,
+        venue:              r.venue,
+        raceTime:           r.race_time,
+        winnerName:         r.winner_name,
+        winnerNameNorm:     r.winner_name_norm,
+        winnerSelectionId:  r.winner_selection_id,
+        settledAt:          r.settled_at,
+      };
+    }
     return map;
   }
 
