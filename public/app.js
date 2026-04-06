@@ -192,7 +192,10 @@ function render(data) {
     // Flatten all races across all venues, sort by time
     const allRaces = venues.flatMap(v => v.races.map(r => ({ ...r, venue: r.venue || v.name })));
     allRaces.sort((a, b) => a.time.localeCompare(b.time));
-    for (const race of allRaces) fragment.appendChild(renderRace(race, true));
+    const grid = document.createElement('div');
+    grid.className = 'venue-races';
+    for (const race of allRaces) grid.appendChild(renderRace(race, true));
+    fragment.appendChild(grid);
   } else {
     for (const venue of venues) fragment.appendChild(renderVenue(venue));
   }
