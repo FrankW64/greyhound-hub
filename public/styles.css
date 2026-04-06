@@ -779,6 +779,24 @@ body {
   color: var(--text-dim);
 }
 
+.result-missed {
+  background: #e74c3c18;
+  border: 1px solid #e74c3c55;
+  color: #e74c3c;
+}
+
+/* Settled race runner rows */
+tr.is-race-winner td {
+  background: #27ae6014;
+  font-weight: 600;
+}
+tr.is-race-winner .dog-name {
+  color: var(--green);
+}
+tr.is-race-loser td {
+  opacity: 0.45;
+}
+
 /* ── Trap bias chart ─────────────────────────────────────────────────────── */
 
 .trap-bias-wrap {

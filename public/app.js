@@ -231,7 +231,7 @@ function renderRace(race, showVenue = false) {
   if (race.prize) prizeEl.textContent = race.prize;
   else prizeEl.style.display = 'none';
   const tbody = el.querySelector('.race-runners');
-  for (const runner of race.runners) tbody.appendChild(renderRunner(runner));
+  for (const runner of race.runners) tbody.appendChild(renderRunner(runner, race.result));
 
   // Inject result banner if race is settled
   if (race.result) {
@@ -288,8 +288,10 @@ function renderResultBanner(race) {
     ? `<span class="trap-badge t${winner.trap} result-trap">${winner.trap}</span>`
     : '';
 
+  const anyTipped = race.runners.some(r => r.isBestBet || r.isTipped);
   const tippedMark = winner?.isBestBet  ? '<span class="result-flag result-bestbet">⭐ Best Bet won</span>'
-                   : winner?.isTipped   ? '<span class="result-flag result-tipped">✓ Tipped</span>'
+                   : winner?.isTipped   ? '<span class="result-flag result-tipped">✓ Tipped won</span>'
+                   : anyTipped          ? '<span class="result-flag result-missed">✗ Tip missed</span>'
                    : '';
 
   const settledTime = result.settledAt
@@ -307,10 +309,24 @@ function renderResultBanner(race) {
   );
 }
 
-function renderRunner(r) {
+function renderRunner(r, result) {
   const tr = document.createElement('tr');
-  if (r.isBestBet)     tr.classList.add('is-best-bet');
-  else if (r.isTipped) tr.classList.add('is-tipped');
+
+  // Determine if this runner is the winner
+  const isWinner = result && (
+    (result.winnerSelectionId && r.selectionId === result.winnerSelectionId) ||
+    r.name.toLowerCase().replace(/[^a-z0-9]/g, '') === result.winnerNameNorm
+  );
+
+  if (isWinner) {
+    tr.classList.add('is-race-winner');
+  } else if (result) {
+    tr.classList.add('is-race-loser');
+  } else if (r.isBestBet) {
+    tr.classList.add('is-best-bet');
+  } else if (r.isTipped) {
+    tr.classList.add('is-tipped');
+  }
 
   tr.appendChild(makeTd(renderTrap(r.trap),          'col-trap'));
   tr.appendChild(makeTd(renderDogName(r),            'col-dog'));
