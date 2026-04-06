@@ -394,7 +394,6 @@ function applyLiveOdds(market, marketOdds, morningCache) {
 
 const SOURCE_NAMES = {
   timeform:   'Timeform',
-  attheraces: 'At The Races',
   racingpost: 'Racing Post',
   olbg:       'OLBG',
 };
@@ -435,7 +434,7 @@ function generateMockAccuracyStats() {
     overall:    { tips: 89, wins: 27, rate: 30.3 },
     bySource: {
       timeform:   { tips: 38, wins: 12, rate: 31.6 },
-      attheraces: { tips: 34, wins: 10, rate: 29.4 },
+      olbg:       { tips: 34, wins: 10, rate: 29.4 },
       racingpost: { tips: 17, wins:  5, rate: 29.4 },
     },
     bestBet:    { tips: 8, wins: 4, rate: 50.0 },

@@ -104,66 +104,6 @@ async function scrapeTimeform() {
   return tips;
 }
 
-// ── Source: At The Races (greyhounds.attheraces.com) ─────────────────────────
-
-async function scrapeAtTheRaces() {
-  const SOURCE      = 'attheraces';
-  const SOURCE_NAME = 'At The Races';
-  const tips = [];
-
-  try {
-    const html = await fetchHtml('https://greyhounds.attheraces.com/tips');
-    const $ = cheerio.load(html);
-
-    // ATR renders tips in race-grouped sections; each runner row has a dog name
-    // and a "tip" flag or star icon.
-    $('[class*="tip-pick"], [class*="nap"], [class*="TipCard"], [class*="tip-row"]').each((_, el) => {
-      const row      = $(el);
-      const dogName  = normalise(row.find('[class*="runner"], [class*="dog"], [class*="name"]').first().text());
-      const venue    = extractVenueFromText(row.text());
-      const time     = extractTimeFromText(row.text());
-      const position = extractPosition(row.text());
-
-      if (looksLikeDogName(dogName)) {
-        tips.push({ source: SOURCE, sourceName: SOURCE_NAME, dogName, venue, raceTime: time, position });
-      }
-    });
-
-    // Fallback: scan table rows for tip markers (★ or "Tip" text adjacent to a name)
-    if (!tips.length) {
-      $('tr, li').each((_, el) => {
-        const row  = $(el);
-        const text = row.text();
-        if (!/tip|pick|nap|best/i.test(text)) return;
-
-        const dogName = extractDogNameFromText(text);
-        if (!dogName) return;
-
-        const venue    = extractVenueFromText(text);
-        const time     = extractTimeFromText(text);
-        const position = extractPosition(text);
-        tips.push({ source: SOURCE, sourceName: SOURCE_NAME, dogName, venue, raceTime: time, position });
-      });
-    }
-
-    // Fallback: embedded JSON
-    if (!tips.length) {
-      $('script[type="application/json"], script[type="application/ld+json"]').each((_, el) => {
-        try {
-          const json = JSON.parse($(el).html());
-          extractTipsFromJson(json, SOURCE, SOURCE_NAME, tips);
-        } catch (_) {}
-      });
-    }
-
-    console.log(`[Scraper] ${SOURCE_NAME}: found ${tips.length} tips`);
-  } catch (err) {
-    console.warn(`[Scraper] ${SOURCE_NAME} failed: ${err.message}`);
-  }
-
-  return tips;
-}
-
 // ── Aggregator ────────────────────────────────────────────────────────────────
 
 /**
