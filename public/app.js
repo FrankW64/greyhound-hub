@@ -121,53 +121,29 @@ function renderAccuracy(s) {
 
   cards.innerHTML = '';
 
-  // Per-source cards — with position breakdown for RP and Timeform
+  // Always render all known sources even if no settled data yet
   const POSITION_SOURCES = ['racingpost', 'timeform'];
-  let hasAnySourceData = false;
   for (const src of SOURCE_ORDER) {
     const s2 = s.bySource?.[src];
-    if (!s2) continue;
-    hasAnySourceData = true;
 
-    if (POSITION_SOURCES.includes(src) && s2.byPosition) {
-      // Expanded card showing 1st / 2nd / 3rd breakdown
+    if (POSITION_SOURCES.includes(src)) {
       const div = document.createElement('div');
       div.className = 'ac-card ac-card-expanded';
-      const p1 = s2.byPosition[1], p2 = s2.byPosition[2], p3 = s2.byPosition[3];
-      const rateStr = s2.rate != null ? `${s2.rate}%` : '—';
+      const p1 = s2?.byPosition?.[1], p2 = s2?.byPosition?.[2], p3 = s2?.byPosition?.[3];
+      const rateStr = s2?.rate != null ? `${s2.rate}%` : '—';
       div.innerHTML =
         `<div class="ac-label">${esc(SOURCE_LABELS[src] || src)}</div>` +
         `<div class="ac-rate">${rateStr}</div>` +
         `<div class="ac-positions">` +
-          `<span class="ac-pos" title="1st place tips">1st: ${p1?.tips > 0 ? `${p1.wins}/${p1.tips} (${p1.rate ?? '—'}%)` : '—'}</span>` +
-          `<span class="ac-pos" title="2nd place tips">2nd: ${p2?.tips > 0 ? `${p2.wins}/${p2.tips} (${p2.rate ?? '—'}%)` : '—'}</span>` +
-          `<span class="ac-pos" title="3rd place tips">3rd: ${p3?.tips > 0 ? `${p3.wins}/${p3.tips} (${p3.rate ?? '—'}%)` : '—'}</span>` +
+          `<span class="ac-pos">1st: ${p1?.tips > 0 ? `${p1.wins}/${p1.tips} (${p1.rate ?? '—'}%)` : '—'}</span>` +
+          `<span class="ac-pos">2nd: ${p2?.tips > 0 ? `${p2.wins}/${p2.tips} (${p2.rate ?? '—'}%)` : '—'}</span>` +
+          `<span class="ac-pos">3rd: ${p3?.tips > 0 ? `${p3.wins}/${p3.tips} (${p3.rate ?? '—'}%)` : '—'}</span>` +
         `</div>`;
       cards.appendChild(div);
     } else {
-      cards.appendChild(makeCard(SOURCE_LABELS[src] || src, s2.wins, s2.tips, s2.rate));
+      const wins = s2?.wins ?? 0, tips = s2?.tips ?? 0, rate = s2?.rate ?? null;
+      cards.appendChild(makeCard(SOURCE_LABELS[src] || src, wins, tips, rate));
     }
-  }
-
-  if (!hasAnySourceData && s.settledRaces === 0) {
-    const msg = document.createElement('span');
-    msg.className = 'ac-no-data';
-    msg.textContent = 'No settled races yet — accuracy data will appear here once races complete.';
-    cards.appendChild(msg);
-    panel.classList.remove('hidden');
-    return;
-  }
-
-  if (hasAnySourceData) cards.appendChild(makeDivider());
-
-  // Best Bet card
-  if (s.bestBet) {
-    cards.appendChild(makeCard('Best Bet', s.bestBet.wins, s.bestBet.tips, s.bestBet.rate, true));
-  }
-
-  // EW Outsider card
-  if (s.ewOutsider) {
-    cards.appendChild(makeCard('EW Win', s.ewOutsider.wins, s.ewOutsider.tips, s.ewOutsider.rate, false));
   }
 
   panel.classList.remove('hidden');
