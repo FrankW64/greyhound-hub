@@ -15,7 +15,7 @@
 
 const axios = require('axios');
 
-const BASE_URL = 'http://api.gbgb.org.uk/api/results';
+const BASE_URL = 'https://api.gbgb.org.uk/api/results';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
