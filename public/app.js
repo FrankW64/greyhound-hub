@@ -180,6 +180,17 @@ function resetCountdown() {
   if (bar) bar.style.transform = 'scaleX(1)';
 }
 
+// ── Tab state ─────────────────────────────────────────────────────────────────
+let activeTab = 'upcoming';
+
+function setTab(tab) {
+  activeTab = tab;
+  document.getElementById('tab-btn-upcoming')?.classList.toggle('tab-btn-active', tab === 'upcoming');
+  document.getElementById('tab-btn-results')?.classList.toggle('tab-btn-active',  tab === 'results');
+  document.getElementById('tab-upcoming')?.classList.toggle('hidden', tab !== 'upcoming');
+  document.getElementById('tab-results')?.classList.toggle('hidden',  tab !== 'results');
+}
+
 // ── Sort mode ─────────────────────────────────────────────────────────────────
 let sortMode     = 'venue';
 let lastRenderData = null;
@@ -213,6 +224,97 @@ function render(data) {
     fragment.appendChild(grid);
   } else {
     for (const venue of venues) fragment.appendChild(renderVenue(venue));
+  }
+
+  container.innerHTML = '';
+  container.appendChild(fragment);
+
+  renderResultsTab(data);
+}
+
+// ── Results tab ───────────────────────────────────────────────────────────────
+function renderResultsTab(data) {
+  const container = document.getElementById('results-container');
+  if (!container) return;
+
+  const venues = data.venues || [];
+
+  // Collect all settled races across all venues
+  const settledRaces = [];
+  for (const venue of venues) {
+    for (const race of venue.races) {
+      if (race.result) settledRaces.push({ ...race, venue: race.venue || venue.name });
+    }
+  }
+
+  // Update tab count badge
+  const countEl = document.getElementById('results-count');
+  if (countEl) countEl.textContent = settledRaces.length || '';
+
+  if (!settledRaces.length) {
+    container.innerHTML = '<div class="state-card"><p>No results yet today — check back as races settle.</p></div>';
+    return;
+  }
+
+  // Sort by time descending (most recent first)
+  settledRaces.sort((a, b) => b.time.localeCompare(a.time));
+
+  const fragment = document.createDocumentFragment();
+
+  for (const race of settledRaces) {
+    const result = race.result;
+    const winner = race.runners.find(r =>
+      (result.winnerSelectionId && r.selectionId === result.winnerSelectionId) ||
+      r.name.toLowerCase().replace(/[^a-z0-9]/g, '') === result.winnerNameNorm
+    );
+
+    const anyTipped  = race.runners.some(r => r.isBestBet || r.isTipped);
+    const tipHit     = winner?.isBestBet || winner?.isTipped;
+    const outcomeClass = winner?.isBestBet ? 'ro-bestbet'
+                       : tipHit           ? 'ro-hit'
+                       : anyTipped        ? 'ro-miss'
+                       : 'ro-none';
+    const outcomeLabel = winner?.isBestBet ? '⭐ Best Bet won'
+                       : tipHit           ? '✓ Tip won'
+                       : anyTipped        ? '✗ Tip missed'
+                       : '';
+
+    const trapBadge = winner
+      ? `<span class="trap-badge t${winner.trap} result-trap">${winner.trap}</span>`
+      : '';
+
+    const settledTime = result.settledAt
+      ? new Date(result.settledAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+      : '';
+
+    // Build tipped dogs summary
+    const tippedDogs = race.runners
+      .filter(r => r.isBestBet || r.isTipped)
+      .map(r => {
+        const badge = r.isBestBet
+          ? `<span class="badge badge-bestbet" style="font-size:0.6rem;padding:1px 5px">⭐</span>`
+          : `<span class="badge badge-tipped badge-tipped-${Math.min(r.winTipCount,4)}" style="font-size:0.6rem;padding:1px 5px">×${r.winTipCount}</span>`;
+        return `<span class="ro-tipped-dog">${esc(r.name)} ${badge}</span>`;
+      }).join('');
+
+    const card = document.createElement('div');
+    card.className = `results-race-card ${outcomeClass}`;
+    card.innerHTML =
+      `<div class="ro-header">` +
+        `<span class="ro-venue">${esc(race.venue)}</span>` +
+        `<span class="ro-time">${esc(race.time)}</span>` +
+        `<span class="ro-grade">${esc(race.grade || '')}</span>` +
+        `${settledTime ? `<span class="ro-settled">settled ${settledTime}</span>` : ''}` +
+      `</div>` +
+      `<div class="ro-result">` +
+        `<span class="ro-label">WINNER</span>` +
+        `${trapBadge}` +
+        `<span class="ro-winner-name">${esc(result.winnerName)}</span>` +
+        `${outcomeLabel ? `<span class="ro-outcome ${outcomeClass}-tag">${outcomeLabel}</span>` : ''}` +
+      `</div>` +
+      `${tippedDogs ? `<div class="ro-tipped">Tipped: ${tippedDogs}</div>` : ''}`;
+
+    fragment.appendChild(card);
   }
 
   container.innerHTML = '';

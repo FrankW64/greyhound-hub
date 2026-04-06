@@ -335,6 +335,155 @@ body {
 .error-icon { font-size: 2.5rem; }
 
 /* ── Venue sections ──────────────────────────────────────────────────────── */
+/* ── Tab bar ──────────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 0;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 8px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-btn:hover { color: var(--text); }
+
+.tab-btn-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-count {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ── Results tab cards ────────────────────────────────────────────────────── */
+#results-container {
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.results-race-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--border);
+}
+
+.results-race-card.ro-bestbet { border-left-color: var(--gold-light); }
+.results-race-card.ro-hit     { border-left-color: var(--green); }
+.results-race-card.ro-miss    { border-left-color: #e74c3c; }
+.results-race-card.ro-none    { border-left-color: var(--border); }
+
+.ro-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ro-venue {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.ro-time {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ro-grade {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.ro-settled {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.ro-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ro-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.ro-winner-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.ro-outcome {
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.ro-bestbet-tag { background: #f0a50018; border: 1px solid #f0a50055; color: var(--gold-light); }
+.ro-hit-tag     { background: #27ae6018; border: 1px solid #27ae6055; color: #6fcf97; }
+.ro-miss-tag    { background: #e74c3c18; border: 1px solid #e74c3c55; color: #e74c3c; }
+
+.ro-tipped {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ro-tipped-dog {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-weight: 500;
+}
+
 /* ── Sort toggle ──────────────────────────────────────────────────────────── */
 .sort-toggle-wrap {
   display: flex;

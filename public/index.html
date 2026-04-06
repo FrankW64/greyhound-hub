@@ -155,15 +155,28 @@
       <p id="error-msg">Could not load race data.</p>
       <button onclick="fetchRaces()">Retry</button>
     </div>
-    <!-- Sort toggle -->
-    <div class="sort-toggle-wrap">
-      <div class="sort-toggle" role="group" aria-label="Sort order">
-        <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
-        <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
-      </div>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button id="tab-btn-upcoming" class="tab-btn tab-btn-active" onclick="setTab('upcoming')">Upcoming</button>
+      <button id="tab-btn-results"  class="tab-btn"                onclick="setTab('results')">Results <span id="results-count" class="tab-count"></span></button>
     </div>
 
-    <div id="races-container"></div>
+    <!-- Upcoming tab -->
+    <div id="tab-upcoming">
+      <div class="sort-toggle-wrap">
+        <div class="sort-toggle" role="group" aria-label="Sort order">
+          <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
+          <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
+        </div>
+      </div>
+      <div id="races-container"></div>
+    </div>
+
+    <!-- Results tab -->
+    <div id="tab-results" class="hidden">
+      <div id="results-container"></div>
+    </div>
   </main>
 
   <!-- ── Templates ───────────────────────────────────────────────────────── -->
