@@ -68,6 +68,16 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_results_race  ON results(race_id, race_date);
   `);
 
+  // Add 2nd/3rd place columns if they don't exist yet (non-destructive migration)
+  const cols = _db.prepare("PRAGMA table_info(results)").all().map(c => c.name);
+  if (!cols.includes('second_name')) {
+    _db.exec(`ALTER TABLE results ADD COLUMN second_name      TEXT`);
+    _db.exec(`ALTER TABLE results ADD COLUMN second_name_norm TEXT`);
+    _db.exec(`ALTER TABLE results ADD COLUMN third_name       TEXT`);
+    _db.exec(`ALTER TABLE results ADD COLUMN third_name_norm  TEXT`);
+    console.log('[DB] Migrated results table: added 2nd/3rd place columns');
+  }
+
   // Migrate existing accuracy.json data on first run
   migrateJson(_db);
 

@@ -240,7 +240,7 @@ class DataManager {
         if (!race) continue;
         if (alreadySettled[race.id]) continue; // already recorded
 
-        this.resultsTracker.recordResult(race, null, result.winnerName);
+        this.resultsTracker.recordResult(race, null, result.winnerName, result.secondName, result.thirdName);
       }
     } catch (err) {
       console.warn('[DataManager] GBGB results check error:', err.message);

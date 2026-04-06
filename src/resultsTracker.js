@@ -78,17 +78,17 @@ class ResultsTracker {
    * Record the winner of a settled race.
    * UNIQUE on (race_id, race_date) — duplicate calls are silently ignored.
    */
-  recordResult(race, winnerSelectionId, winnerName) {
+  recordResult(race, winnerSelectionId, winnerName, secondName = '', thirdName = '') {
     const db    = getDb();
     const today = new Date().toISOString().split('T')[0];
 
     db.prepare(`
       INSERT OR IGNORE INTO results
         (race_id, race_date, venue, race_time, winner_name, winner_name_norm,
-         winner_selection_id, settled_at)
+         winner_selection_id, second_name, second_name_norm, third_name, third_name_norm, settled_at)
       VALUES
         (@race_id, @race_date, @venue, @race_time, @winner_name, @winner_name_norm,
-         @winner_selection_id, @settled_at)
+         @winner_selection_id, @second_name, @second_name_norm, @third_name, @third_name_norm, @settled_at)
     `).run({
       race_id:             race.id,
       race_date:           today,
@@ -97,34 +97,44 @@ class ResultsTracker {
       winner_name:         winnerName,
       winner_name_norm:    normaliseName(winnerName),
       winner_selection_id: winnerSelectionId || null,
+      second_name:         secondName        || null,
+      second_name_norm:    secondName ? normaliseName(secondName) : null,
+      third_name:          thirdName         || null,
+      third_name_norm:     thirdName  ? normaliseName(thirdName)  : null,
       settled_at:          new Date().toISOString(),
     });
 
-    // Log whether any tipped dog won this race
-    this._logTipOutcome(db, race.id, today, winnerName, winnerSelectionId);
-    console.log(`[ResultsTracker] Result: ${race.venue} ${race.time} → ${winnerName}`);
+    this._logTipOutcome(db, race.id, today, winnerName, secondName, thirdName, winnerSelectionId);
+    const places = [winnerName, secondName, thirdName].filter(Boolean).join(', ');
+    console.log(`[ResultsTracker] Result: ${race.venue} ${race.time} → ${places}`);
   }
 
-  /** Print a log line for each tip that won (or missed) this race. */
-  _logTipOutcome(db, raceId, raceDate, winnerName, winnerSelectionId) {
-    const winnerNorm = normaliseName(winnerName);
+  /** Print a log line for each tip that hit or missed. */
+  _logTipOutcome(db, raceId, raceDate, winnerName, secondName, thirdName, winnerSelectionId) {
+    const norms = {
+      1: normaliseName(winnerName),
+      2: normaliseName(secondName),
+      3: normaliseName(thirdName),
+    };
 
     const tips = db.prepare(`
       SELECT DISTINCT source, dog_name, dog_name_norm, selection_id, position, is_best_bet
       FROM tips
-      WHERE race_id = ? AND race_date = ? AND position = 1
+      WHERE race_id = ? AND race_date = ? AND position IN (1, 2, 3)
     `).all(raceId, raceDate);
 
     for (const tip of tips) {
-      const won = (winnerSelectionId && tip.selection_id)
+      const actual = norms[tip.position] || '';
+      const won = tip.position === 1 && winnerSelectionId && tip.selection_id
         ? tip.selection_id === winnerSelectionId
-        : tip.dog_name_norm === winnerNorm;
+        : tip.dog_name_norm === actual;
 
-      const label = tip.is_best_bet ? '⭐ Best Bet' : '✓ Tip';
+      const posLabel = tip.position === 1 ? '1st' : tip.position === 2 ? '2nd' : '3rd';
+      const label    = tip.is_best_bet ? '⭐ Best Bet' : `✓ ${posLabel} tip`;
       if (won) {
-        console.log(`[ResultsTracker] ✅ WINNER — ${label} [${tip.source}] ${tip.dog_name} won!`);
+        console.log(`[ResultsTracker] ✅ HIT — ${label} [${tip.source}] ${tip.dog_name} finished ${posLabel}!`);
       } else {
-        console.log(`[ResultsTracker] ❌ missed — [${tip.source}] tipped ${tip.dog_name}, winner was ${winnerName}`);
+        console.log(`[ResultsTracker] ❌ miss — [${tip.source}] tipped ${tip.dog_name} for ${posLabel}`);
       }
     }
   }
@@ -145,6 +155,10 @@ class ResultsTracker {
         winnerName:         r.winner_name,
         winnerNameNorm:     r.winner_name_norm,
         winnerSelectionId:  r.winner_selection_id,
+        secondName:         r.second_name        || '',
+        secondNameNorm:     r.second_name_norm   || '',
+        thirdName:          r.third_name         || '',
+        thirdNameNorm:      r.third_name_norm    || '',
         settledAt:          r.settled_at,
       };
     }
@@ -168,26 +182,37 @@ class ResultsTracker {
       'SELECT COUNT(*) AS n FROM results WHERE race_date >= ?'
     ).get(sinceStr).n;
 
-    // Join tips to results — a tip "won" if the dog_name_norm matches the winner
+    // Join tips to results for all positions 1-3
     const rows = db.prepare(`
       SELECT
         t.source,
+        t.position,
         t.is_best_bet,
         t.is_ew_outsider,
         t.dog_name_norm,
-        t.selection_id    AS tip_sel,
+        t.selection_id        AS tip_sel,
         r.winner_name_norm,
         r.winner_selection_id,
-        CASE
-          WHEN t.selection_id IS NOT NULL AND r.winner_selection_id IS NOT NULL
-               AND t.selection_id = r.winner_selection_id               THEN 1
-          WHEN t.dog_name_norm = r.winner_name_norm                      THEN 1
+        r.second_name_norm,
+        r.third_name_norm,
+        CASE t.position
+          WHEN 1 THEN
+            CASE
+              WHEN t.selection_id IS NOT NULL AND r.winner_selection_id IS NOT NULL
+                   AND t.selection_id = r.winner_selection_id THEN 1
+              WHEN t.dog_name_norm = r.winner_name_norm        THEN 1
+              ELSE 0
+            END
+          WHEN 2 THEN
+            CASE WHEN t.dog_name_norm = r.second_name_norm     THEN 1 ELSE 0 END
+          WHEN 3 THEN
+            CASE WHEN t.dog_name_norm = r.third_name_norm      THEN 1 ELSE 0 END
           ELSE 0
         END AS won
       FROM tips t
       JOIN results r ON t.race_id = r.race_id AND t.race_date = r.race_date
       WHERE t.race_date >= ?
-        AND t.position = 1
+        AND t.position IN (1, 2, 3)
     `).all(sinceStr);
 
     const stats = {
@@ -199,30 +224,41 @@ class ResultsTracker {
       ewOutsider: { tips: 0, wins: 0, rate: null },
     };
 
-    // Deduplicate: for overall count each runner once (not once per source)
     const runnerKey = new Set();
 
     for (const row of rows) {
-      // Per-source
+      // Per-source with position breakdown
       if (!stats.bySource[row.source]) {
-        stats.bySource[row.source] = { tips: 0, wins: 0, rate: null };
+        stats.bySource[row.source] = {
+          tips: 0, wins: 0, rate: null,
+          byPosition: {
+            1: { tips: 0, wins: 0, rate: null },
+            2: { tips: 0, wins: 0, rate: null },
+            3: { tips: 0, wins: 0, rate: null },
+          },
+        };
       }
-      stats.bySource[row.source].tips++;
-      if (row.won) stats.bySource[row.source].wins++;
+      const src = stats.bySource[row.source];
+      src.tips++;
+      if (row.won) src.wins++;
+      src.byPosition[row.position].tips++;
+      if (row.won) src.byPosition[row.position].wins++;
 
-      // Overall — deduplicate by dog+race
-      const key = `${row.dog_name_norm}|${row.race_date}`;
-      if (!runnerKey.has(key)) {
-        runnerKey.add(key);
-        stats.overall.tips++;
-        if (row.won) stats.overall.wins++;
+      // Overall — win tips only, deduplicated
+      if (row.position === 1) {
+        const key = `${row.dog_name_norm}|${row.race_date}`;
+        if (!runnerKey.has(key)) {
+          runnerKey.add(key);
+          stats.overall.tips++;
+          if (row.won) stats.overall.wins++;
+        }
       }
 
-      if (row.is_best_bet) {
+      if (row.is_best_bet && row.position === 1) {
         stats.bestBet.tips++;
         if (row.won) stats.bestBet.wins++;
       }
-      if (row.is_ew_outsider) {
+      if (row.is_ew_outsider && row.position === 1) {
         stats.ewOutsider.tips++;
         if (row.won) stats.ewOutsider.wins++;
       }
@@ -232,7 +268,10 @@ class ResultsTracker {
     stats.overall.rate    = rate(stats.overall.wins,    stats.overall.tips);
     stats.bestBet.rate    = rate(stats.bestBet.wins,    stats.bestBet.tips);
     stats.ewOutsider.rate = rate(stats.ewOutsider.wins, stats.ewOutsider.tips);
-    for (const s of Object.values(stats.bySource)) s.rate = rate(s.wins, s.tips);
+    for (const src of Object.values(stats.bySource)) {
+      src.rate = rate(src.wins, src.tips);
+      for (const p of Object.values(src.byPosition)) p.rate = rate(p.wins, p.tips);
+    }
 
     return stats;
   }

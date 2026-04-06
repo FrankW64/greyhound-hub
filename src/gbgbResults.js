@@ -28,13 +28,16 @@ function normaliseTime(t) {
 }
 
 /**
- * Fetch all winner results for a given date (defaults to today).
+ * Fetch all results (positions 1-3) for a given date (defaults to today).
+ * Groups by raceId and returns one entry per race with winner, 2nd, 3rd.
  * @param {string} [date]  YYYY-MM-DD
- * @returns {Promise<Array<{raceId:string, venue:string, raceTime:string, winnerName:string}>>}
+ * @returns {Promise<Array<{raceId, venue, raceTime, winnerName, secondName, thirdName}>>}
  */
 async function fetchGbgbResults(date) {
   const targetDate = date || todayStr();
-  const results = [];
+
+  // raceId → { raceId, venue, raceTime, positions: { 1: name, 2: name, 3: name } }
+  const raceMap = new Map();
 
   try {
     let page = 1;
@@ -52,25 +55,40 @@ async function fetchGbgbResults(date) {
       totalPages = data.meta?.pageCount || 1;
 
       for (const item of data.items) {
-        if (item.resultPosition !== 1) continue;
+        const pos = item.resultPosition;
+        if (!pos || pos > 3) continue; // only care about 1st, 2nd, 3rd
 
-        results.push({
-          raceId:     String(item.raceId),
-          venue:      item.trackName || '',
-          raceTime:   normaliseTime(item.raceTime),
-          winnerName: item.dogName   || '',
-        });
+        const id = String(item.raceId);
+        if (!raceMap.has(id)) {
+          raceMap.set(id, {
+            raceId:    id,
+            venue:     item.trackName || '',
+            raceTime:  normaliseTime(item.raceTime),
+            positions: {},
+          });
+        }
+        raceMap.get(id).positions[pos] = item.dogName || '';
       }
 
       page++;
     }
 
-    console.log(`[GBGBResults] ${results.length} winners fetched for ${targetDate}`);
+    const results = [...raceMap.values()].map(r => ({
+      raceId:     r.raceId,
+      venue:      r.venue,
+      raceTime:   r.raceTime,
+      winnerName: r.positions[1] || '',
+      secondName: r.positions[2] || '',
+      thirdName:  r.positions[3] || '',
+    }));
+
+    const withWinner = results.filter(r => r.winnerName);
+    console.log(`[GBGBResults] ${withWinner.length} races fetched for ${targetDate} (with 1st/2nd/3rd)`);
+    return withWinner;
   } catch (err) {
     console.warn(`[GBGBResults] Fetch failed: ${err.message}`);
+    return [];
   }
-
-  return results;
 }
 
 module.exports = { fetchGbgbResults };
