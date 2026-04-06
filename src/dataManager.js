@@ -364,7 +364,7 @@ function applyBadgeLogic(races) {
       const drifted          = runner.currentOdds > runner.openingOdds;
       const isBestBet        = winTipCount >= totalSources && drifted;
       const isEachWayOutsider = runner.tipsCount >= 1 && (runner.currentOdds || 0) >= 7.0;
-      return { ...runner, isTipped, isBestBet, isEachWayOutsider };
+      return { ...runner, isTipped, winTipCount, isBestBet, isEachWayOutsider };
     }),
   }));
 }

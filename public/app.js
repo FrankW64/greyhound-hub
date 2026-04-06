@@ -359,7 +359,7 @@ function renderBookieOdds(r) {
 function renderTips(r) {
   const parts = [];
   if (r.isBestBet)         parts.push('<span class="badge badge-bestbet">⭐ Best Bet</span>');
-  else if (r.isTipped)     parts.push(`<span class="badge badge-tipped">✓ Tipped ×${r.tipsCount}</span>`);
+  else if (r.isTipped)     parts.push(`<span class="badge badge-tipped badge-tipped-${Math.min(r.winTipCount, 4)}">✓ Tipped ×${r.winTipCount}</span>`);
   if (r.isEachWayOutsider) parts.push('<span class="badge badge-ew">EW Outsider</span>');
 
   // Per-source position pills (replace plain source badge)

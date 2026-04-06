@@ -597,6 +597,21 @@ body {
   border: 1px solid #27ae6066;
   color: #6fcf97;
 }
+.badge-tipped-2 {
+  background: #27ae6018;
+  border: 1px solid #27ae6066;
+  color: #6fcf97;
+}
+.badge-tipped-3 {
+  background: #e6730018;
+  border: 1px solid #e6730066;
+  color: #f0a06a;
+}
+.badge-tipped-4 {
+  background: #c0392b18;
+  border: 1px solid #c0392b88;
+  color: #ff7675;
+}
 
 .badge-source {
   background: #ffffff0a;
