@@ -354,9 +354,11 @@ function applyBadgeLogic(races) {
   return races.map(race => ({
     ...race,
     runners: race.runners.map(runner => {
-      const isTipped         = runner.tipsCount >= 2;
+      // Count sources that tip this dog to WIN (position 1) only
+      const winTipCount      = Object.values(runner.tipPositions || {}).filter(p => p === 1).length;
+      const isTipped         = winTipCount >= 2;
       const drifted          = runner.currentOdds > runner.openingOdds;
-      const isBestBet        = runner.tipsCount >= totalSources && drifted;
+      const isBestBet        = winTipCount >= totalSources && drifted;
       const isEachWayOutsider = runner.tipsCount >= 1 && (runner.currentOdds || 0) >= 7.0;
       return { ...runner, isTipped, isBestBet, isEachWayOutsider };
     }),
