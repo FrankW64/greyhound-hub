@@ -71,8 +71,7 @@ async function scrapeEverytipTips() {
 
         const raceTime = `${m[1].padStart(2, '0')}:${m[2]}`;
         const dogName  = toTitleCase(m[3].trim());
-        const label    = m[4].toUpperCase();
-        const position = label === 'NAP' ? 1 : 2;
+        const position = 1; // Both NAP and NB are win tips
 
         tips.push({ source: SOURCE, sourceName: SOURCE_NAME, dogName, venue: toTitleCase(venue), raceTime, position });
       }
