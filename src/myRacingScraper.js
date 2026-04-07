@@ -72,26 +72,14 @@ async function scrapeMyRacingTips() {
           const html     = await fetchHtml(rc.url);
           const verdicts = parseVerdicts(html);
 
-          // Debug first racecard to show HTML around verdict area
+          // Debug: dump first racecard HTML to file
           if (!debugDone) {
             debugDone = true;
-            const $ = cheerio.load(html);
-            // Show snippet around any "verdict" text
-            const verdictEl = $('[class*="verdict"], [class*="Verdict"]').first();
-            if (verdictEl.length) {
-              console.log('[MyRacing] Debug verdict HTML:', verdictEl.parent().html()?.slice(0, 800));
-            } else {
-              // Show all unique class names that contain useful keywords
-              const classes = new Set();
-              $('[class]').each((_, el) => {
-                const c = $( el).attr('class') || '';
-                if (/verdict|predict|select|tip|runner|dog/i.test(c)) classes.add(c);
-              });
-              console.log('[MyRacing] Debug - no verdict el. Relevant classes:', [...classes].slice(0, 20).join(' | '));
-              // Also show a 500-char snippet from the middle of the body
-              const bodyText = $('body').html() || '';
-              const mid = Math.floor(bodyText.length / 2);
-              console.log('[MyRacing] Debug body midpoint:', bodyText.slice(mid, mid + 500).replace(/\s+/g, ' '));
+            try {
+              require('fs').writeFileSync('/tmp/myracing-debug.html', html);
+              console.log(`[MyRacing] Debug HTML dumped to /tmp/myracing-debug.html (${html.length} bytes)`);
+            } catch (e) {
+              console.log('[MyRacing] Debug dump failed:', e.message);
             }
           }
 
