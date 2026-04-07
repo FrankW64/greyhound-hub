@@ -35,6 +35,7 @@ class DataManager {
     this._scraperStatus  = null;
     this.resultsTracker  = null;
     this._pendingResults = new Map(); // marketId → race (for result detection)
+    this._lastKnownTips  = [];       // reused for early publish so tips don't disappear
   }
 
   // ── Initialisation ──────────────────────────────────────────────────────────
@@ -104,9 +105,9 @@ class DataManager {
         races = simulateOddsMovement(races);
       } else if (this.useScraperMode) {
         races = await this._fetchScraperRaces();
-        // Publish race cards immediately so the UI isn't blank while tips load
+        // Publish race cards immediately using last known tips so UI stays populated
         if (races.length) {
-          this.races       = applyBadgeLogic(mergeTips(races, []));
+          this.races       = applyBadgeLogic(mergeTips(races, this._lastKnownTips));
           this.lastUpdated = new Date().toISOString();
           console.log(`[DataManager] Race cards published early — ${races.length} races`);
         }
@@ -138,7 +139,9 @@ class DataManager {
         console.log(`[DataManager] ${verdictTips.length} Timeform verdict tips extracted`);
       }
 
-      races = mergeTips(races, [...verdictTips, ...tips]);
+      const allTips = [...verdictTips, ...tips];
+      this._lastKnownTips = allTips;
+      races = mergeTips(races, allTips);
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)
