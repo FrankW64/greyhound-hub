@@ -34,8 +34,9 @@ class DataManager {
 
     this._scraperStatus  = null;
     this.resultsTracker  = null;
-    this._pendingResults = new Map(); // marketId → race (for result detection)
-    this._lastKnownTips  = [];       // reused for early publish so tips don't disappear
+    this._pendingResults  = new Map(); // marketId → race (for result detection)
+    this._lastKnownTips   = [];       // reused for early publish so tips don't disappear
+    this._racesSeenToday  = new Map(); // venue+time → race, accumulates all day so finished races can be matched to results
   }
 
   // ── Initialisation ──────────────────────────────────────────────────────────
@@ -153,6 +154,13 @@ class DataManager {
 
       races = applyBadgeLogic(races);
 
+      // Accumulate all races seen today so GBGB result matching works even
+      // after Timeform removes a finished race from its listing
+      for (const race of races) {
+        const key = `${race.venue}|${race.time}`;
+        if (!this._racesSeenToday.has(key)) this._racesSeenToday.set(key, race);
+      }
+
       // Snapshot tips for new races (persisted; first snapshot wins)
       if (this.resultsTracker) this.resultsTracker.snapshotTips(races);
 
@@ -168,7 +176,7 @@ class DataManager {
 
       // Scraper mode: check GBGB API for settled results and record them
       if (this.useScraperMode && this.resultsTracker) {
-        await this._checkGbgbResults(races);
+        await this._checkGbgbResults();
       }
 
       this.races       = races;
@@ -234,26 +242,32 @@ class DataManager {
    * Scraper mode: fetch today's GBGB results and record any winners we
    * haven't seen yet. Matches by venue name + race time against current races.
    */
-  async _checkGbgbResults(races) {
+  async _checkGbgbResults() {
     try {
       const gbgbResults = await fetchGbgbResults();
       if (!gbgbResults.length) return;
 
       const alreadySettled = this.resultsTracker.getTodaysResults();
 
+      let recorded = 0;
       for (const result of gbgbResults) {
-        // Find the matching race in our list by venue + time
-        const race = races.find(r =>
-          r.time === result.raceTime &&
-          r.venue.toLowerCase().replace(/[^a-z]/g, '') ===
-            result.venue.toLowerCase().replace(/[^a-z]/g, '')
-        );
+        // Match against ALL races seen today (including already-removed ones)
+        const venueNorm = v => (v || '').toLowerCase().replace(/[^a-z]/g, '');
+        let race = null;
+        for (const [, r] of this._racesSeenToday) {
+          if (r.time === result.raceTime && venueNorm(r.venue) === venueNorm(result.venue)) {
+            race = r;
+            break;
+          }
+        }
 
         if (!race) continue;
         if (alreadySettled[race.id]) continue; // already recorded
 
         this.resultsTracker.recordResult(race, null, result.winnerName, result.secondName, result.thirdName);
+        recorded++;
       }
+      if (recorded) console.log(`[DataManager] Recorded ${recorded} new results`);
     } catch (err) {
       console.warn('[DataManager] GBGB results check error:', err.message);
     }
