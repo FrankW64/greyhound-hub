@@ -142,6 +142,15 @@ class DataManager {
       const allTips = [...verdictTips, ...tips];
       this._lastKnownTips = allTips;
       races = mergeTips(races, allTips);
+
+      // Debug: count matched tips per source
+      const matchCounts = {};
+      for (const race of races)
+        for (const runner of race.runners)
+          for (const src of (runner.tipSources || []))
+            matchCounts[src] = (matchCounts[src] || 0) + 1;
+      console.log('[DataManager] Tips matched to runners:', JSON.stringify(matchCounts));
+
       races = applyBadgeLogic(races);
 
       // Snapshot tips for new races (persisted; first snapshot wins)

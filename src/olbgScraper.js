@@ -45,35 +45,36 @@ async function scrapeOlbgTips() {
     // or inline as:  __sveltekit_XXX={...}
     // We search all <script> tags for JSON containing our selection keys.
 
-    let entries = [];
+    // OLBG embeds data as JS object literals with unquoted keys:
+    //   selection:"Full Dog Name", event_name_alias:"HH:MM Venue", team_name:"Tipster", win_tips:3, ...
+    // `selection` is the dog name; `team_name` is the tipster's team (not the dog).
+    const rawEntries = [];
+    for (const m of html.matchAll(/event_name_alias:"([^"]+)"/g)) {
+      const alias = m[1];
+      const ctx   = html.slice(Math.max(0, m.index - 600), m.index + 600);
 
-    // OLBG embeds data as JS object literals with unquoted keys, e.g.:
-    //   event_name_alias:"12:18 Romford",team_name:"M Girl",win_tips:3,ew_tips:0,expired:0
-    // We extract each team_name + event_name_alias pair from the raw HTML.
-    const teamMatches = [...html.matchAll(/event_name_alias:"([^"]+)"[^}]*?team_name:"([^"]+)"/g)];
-    for (const m of teamMatches) {
-      const alias   = m[1];
-      const dogName = m[2];
+      const selM  = ctx.match(/\bselection:"([^"]+)"/);
+      const teamM = ctx.match(/\bteam_name:"([^"]+)"/);
+      const winM  = ctx.match(/\bwin_tips:(\d+)/);
+      const ewM   = ctx.match(/\bew_tips:(\d+)/);
+      const expM  = ctx.match(/\bexpired:(\d+)/);
 
-      // Fields may appear before or after the match — look 500 chars each way
-      const ctx = html.slice(Math.max(0, m.index - 500), m.index + 500);
-      const winM = ctx.match(/win_tips:(\d+)/);
-      const ewM  = ctx.match(/ew_tips:(\d+)/);
-      const expM = ctx.match(/expired:(\d+)/);
+      const dogName = selM?.[1] || teamM?.[1];
+      if (!dogName) continue;
 
-      entries.push({
+      rawEntries.push({
         event_name_alias: alias,
-        team_name:        dogName,
-        win_tips:  winM  ? parseInt(winM[1],  10) : 0,
-        ew_tips:   ewM   ? parseInt(ewM[1],   10) : 0,
-        expired:   expM  ? parseInt(expM[1],  10) : 0,
+        dog_name:  dogName,
+        win_tips:  winM ? parseInt(winM[1], 10) : 0,
+        ew_tips:   ewM  ? parseInt(ewM[1],  10) : 0,
+        expired:   expM ? parseInt(expM[1], 10) : 0,
       });
     }
 
     // De-duplicate by dog+event
     const seen = new Set();
-    entries = entries.filter(e => {
-      const key = `${e.team_name}|${e.event_name_alias}`;
+    const entries = rawEntries.filter(e => {
+      const key = `${e.dog_name}|${e.event_name_alias}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -83,13 +84,13 @@ async function scrapeOlbgTips() {
 
     // ── Convert to tip objects ───────────────────────────────────────────────
     for (const entry of entries) {
-      if (!entry.team_name || entry.expired) continue;
+      if (!entry.dog_name || entry.expired) continue;
 
       // Skip entries with no tips at all
       const totalTips = (entry.win_tips || 0) + (entry.ew_tips || 0);
       if (totalTips === 0) continue;
 
-      const dogName  = entry.team_name.trim();
+      const dogName  = entry.dog_name.trim();
       const alias    = entry.event_name_alias || ''; // "6:02 Towcester"
 
       const venue    = extractVenueFromAlias(alias);

@@ -89,25 +89,21 @@ async function scrapeRacingPostTips(races) {
       else req.continue();
     });
 
-    // ── Step 1: Intercept meeting list API ───────────────────────────────────
-    let meetingJson   = null;
+    // ── Step 1: Load meeting list — captures meeting JSON + session cookies ─────
+    let meetingJson    = null;
     const allTipsJsons = [];
 
     page.on('response', async resp => {
-      const url = resp.url();
       try {
-        if (url.includes('/meeting/blocks.sd')) {
+        if (resp.url().includes('/meeting/blocks.sd')) {
           meetingJson = JSON.parse(await resp.text());
-        } else if (url.includes('/card/blocks.sd') && url.includes('tab=tips')) {
-          allTipsJsons.push(JSON.parse(await resp.text()));
         }
       } catch (_) {}
     });
 
+    const meetingListUrl = `${BASE_URL}/#meeting-list/r_date=${today}`;
     console.log('[RPScraper] Loading meeting list…');
-    await page.goto(`${BASE_URL}/#meeting-list/r_date=${today}`, {
-      waitUntil: 'domcontentloaded', timeout: 30000,
-    });
+    await page.goto(meetingListUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitForCondition(() => meetingJson !== null, 10000).catch(() => {});
 
     // ── Step 2: Extract race IDs grouped by meeting ──────────────────────────
@@ -119,34 +115,64 @@ async function scrapeRacingPostTips(races) {
       return [];
     }
 
-    // ── Step 3: Fetch tips for each meeting ──────────────────────────────────
+    // ── Step 3: Fetch tips for each meeting via direct API call ──────────────
+    // Rather than relying on SPA navigation (which only triggers the API for
+    // some meetings due to caching), we call the tips endpoint directly using
+    // fetch() from within the page context.  This uses the browser's session
+    // cookies so auth/CSRF works automatically.
+    //
+    // We try three candidate URL paths in order, stopping at the first 200 OK
+    // that returns tip data.  The first successful call reveals which path the
+    // RP site actually uses; subsequent calls reuse the same path.
+    const TIPS_PATHS = [
+      '/card/blocks.sd',
+      '/api/card/blocks.sd',
+      '/greyhound-racing/card/blocks.sd',
+    ];
+    let workingPath = null;
+
     for (const group of meetingGroups) {
       const { name, raceIds } = group;
       if (!raceIds.length) continue;
 
-      const prevCount = allTipsJsons.length;
-      const firstId   = raceIds[0];
-      const tipUrl    = `${BASE_URL}/#card/race_id=${firstId}&r_date=${today}&tab=tips&races_ids=${raceIds.join(',')}`;
+      const firstId = raceIds[0];
+      let gotTips   = false;
 
-      try {
-        await page.goto(tipUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await waitForCondition(() => allTipsJsons.length > prevCount, 5000).catch(() => {});
+      const pathsToTry = workingPath ? [workingPath] : TIPS_PATHS;
 
-        if (allTipsJsons.length > prevCount) {
-          console.log(`[RPScraper] ${name}: got tips response (${raceIds.length} races)`);
+      for (const path of pathsToTry) {
+        const apiUrl = `${BASE_URL}${path}?race_id=${firstId}&r_date=${today}&tab=tips&races_ids=${raceIds.join(',')}`;
+
+        const result = await page.evaluate(async (url) => {
+          try {
+            const r = await fetch(url, { credentials: 'include' });
+            if (!r.ok) return { status: r.status, data: null };
+            const data = await r.json();
+            return { status: r.status, data };
+          } catch (e) { return { status: 0, data: null }; }
+        }, apiUrl);
+
+        if (result?.data?.tips) {
+          allTipsJsons.push(result.data);
+          if (!workingPath) workingPath = path;
+          gotTips = true;
+          break;
         } else {
-          console.log(`[RPScraper] ${name}: no tips response`);
+          console.log(`[RPScraper] ${name}: path ${path} → status ${result?.status}`);
         }
-      } catch (err) {
-        console.warn(`[RPScraper] ${name}: navigation failed — ${err.message}`);
       }
+
+      console.log(`[RPScraper] ${name}: ${gotTips ? 'got tips' : 'no tips'}`);
     }
 
     console.log(`[RPScraper] ${allTipsJsons.length} tip responses from ${meetingGroups.length} meetings`);
 
     // ── Step 4: Parse all accumulated tip responses ───────────────────────────
     for (const json of allTipsJsons) {
-      const tipEntries = json.tips?.tips || [];
+      // Handle both { tips: { tips: [...] } } and { tips: [...] } structures
+      const tipEntries = Array.isArray(json.tips?.tips) ? json.tips.tips
+                       : Array.isArray(json.tips)       ? json.tips
+                       : [];
 
       for (const entry of tipEntries) {
         const first    = parseInt(entry.first,  10) || 0;
@@ -158,6 +184,9 @@ async function scrapeRacingPostTips(races) {
         if (!first && !second && !third) continue;
 
         const matchedRace = findMatchingRace(races, raceTime, dogName);
+        if (!matchedRace) {
+          console.log(`[RPScraper] No race match: time=${raceTime} dog=${dogName}`);
+        }
 
         const runnerName = trap => {
           if (!trap || !matchedRace) return '';
