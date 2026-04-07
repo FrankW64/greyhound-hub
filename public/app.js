@@ -122,28 +122,10 @@ function renderAccuracy(s) {
   cards.innerHTML = '';
 
   // Always render all known sources even if no settled data yet
-  const POSITION_SOURCES = ['racingpost', 'timeform'];
   for (const src of SOURCE_ORDER) {
-    const s2 = s.bySource?.[src];
-
-    if (POSITION_SOURCES.includes(src)) {
-      const div = document.createElement('div');
-      div.className = 'ac-card ac-card-expanded';
-      const p1 = s2?.byPosition?.[1], p2 = s2?.byPosition?.[2], p3 = s2?.byPosition?.[3];
-      const rateStr = s2?.rate != null ? `${s2.rate}%` : '—';
-      div.innerHTML =
-        `<div class="ac-label">${esc(SOURCE_LABELS[src] || src)}</div>` +
-        `<div class="ac-rate">${rateStr}</div>` +
-        `<div class="ac-positions">` +
-          `<span class="ac-pos">1st: ${p1?.tips > 0 ? `${p1.wins}/${p1.tips} (${p1.rate ?? '—'}%)` : '—'}</span>` +
-          `<span class="ac-pos">2nd: ${p2?.tips > 0 ? `${p2.wins}/${p2.tips} (${p2.rate ?? '—'}%)` : '—'}</span>` +
-          `<span class="ac-pos">3rd: ${p3?.tips > 0 ? `${p3.wins}/${p3.tips} (${p3.rate ?? '—'}%)` : '—'}</span>` +
-        `</div>`;
-      cards.appendChild(div);
-    } else {
-      const wins = s2?.wins ?? 0, tips = s2?.tips ?? 0, rate = s2?.rate ?? null;
-      cards.appendChild(makeCard(SOURCE_LABELS[src] || src, wins, tips, rate));
-    }
+    const s2   = s.bySource?.[src];
+    const wins = s2?.wins ?? 0, tips = s2?.tips ?? 0, rate = s2?.rate ?? null;
+    cards.appendChild(makeCard(SOURCE_LABELS[src] || src, wins, tips, rate));
   }
 
   panel.classList.remove('hidden');

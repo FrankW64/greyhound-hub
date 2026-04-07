@@ -239,10 +239,11 @@ class ResultsTracker {
         };
       }
       const src = stats.bySource[row.source];
-      src.tips++;
-      if (row.won) src.wins++;
-      src.byPosition[row.position].tips++;
-      if (row.won) src.byPosition[row.position].wins++;
+      // Only count win tips (position 1) toward per-source accuracy
+      if (row.position === 1) {
+        src.tips++;
+        if (row.won) src.wins++;
+      }
 
       // Overall — win tips only, deduplicated
       if (row.position === 1) {
