@@ -122,15 +122,13 @@ async function fetchAllTips(races) {
   ]);
   allTips.push(...olbgTips, ...everytipTips);
 
-  // RP scraper uses Puppeteer — skip on resource-constrained servers
-  if (process.env.SKIP_RP_TIPS !== 'true') {
-    const { scrapeRacingPostTips } = require('./racingPostScraper');
-    const rpTips = await scrapeRacingPostTips(races || []).catch(err => {
-      console.warn('[Scraper] RP failed:', err.message);
-      return [];
-    });
-    allTips.push(...rpTips);
-  }
+  // RP tips via myracing.com racecard pages — plain axios, no Puppeteer needed
+  const { scrapeMyRacingTips } = require('./myRacingScraper');
+  const rpTips = await scrapeMyRacingTips().catch(err => {
+    console.warn('[Scraper] MyRacing/RP failed:', err.message);
+    return [];
+  });
+  allTips.push(...rpTips);
 
   return allTips;
 }
