@@ -331,13 +331,28 @@ class DataManager {
         ? this.resultsTracker.getTodaysResults()
         : {};
 
-    const venueMap = new Map();
+    const venueMap    = new Map();
+    const addedRaceIds = new Set();
+
     for (const race of races) {
       const raceWithResult = todaysResults[race.id]
         ? { ...race, result: todaysResults[race.id] }
         : race;
       if (!venueMap.has(race.venue)) venueMap.set(race.venue, []);
       venueMap.get(race.venue).push(raceWithResult);
+      addedRaceIds.add(race.id);
+    }
+
+    // Include settled races that Timeform removed from its live listing.
+    // They're still in _racesSeenToday and have a result in the DB.
+    if (!this.useMockData) {
+      for (const [, race] of this._racesSeenToday) {
+        if (addedRaceIds.has(race.id)) continue;   // still in live listing
+        if (!todaysResults[race.id]) continue;      // no result recorded yet
+        const raceWithResult = { ...race, result: todaysResults[race.id] };
+        if (!venueMap.has(race.venue)) venueMap.set(race.venue, []);
+        venueMap.get(race.venue).push(raceWithResult);
+      }
     }
 
     venueMap.forEach(list => list.sort((a, b) => a.time.localeCompare(b.time)));
