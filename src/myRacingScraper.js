@@ -63,7 +63,6 @@ async function scrapeMyRacingTips() {
     }
 
     // Batch-fetch racecard pages 4 at a time
-    let debugDone = false;
     const CONCURRENCY = 4;
     for (let i = 0; i < racecards.length; i += CONCURRENCY) {
       const batch = racecards.slice(i, i + CONCURRENCY);
@@ -72,16 +71,6 @@ async function scrapeMyRacingTips() {
           const html     = await fetchHtml(rc.url);
           const verdicts = parseVerdicts(html);
 
-          // Debug: dump first racecard HTML to file
-          if (!debugDone) {
-            debugDone = true;
-            try {
-              require('fs').writeFileSync('/tmp/myracing-debug.html', html);
-              console.log(`[MyRacing] Debug HTML dumped to /tmp/myracing-debug.html (${html.length} bytes)`);
-            } catch (e) {
-              console.log('[MyRacing] Debug dump failed:', e.message);
-            }
-          }
 
           for (const v of verdicts) {
             tips.push({
@@ -161,58 +150,39 @@ function extractRacecardLinks(html, today) {
 }
 
 /**
- * Parse the RP verdict widget from a racecard page.
+ * Parse the Racing Post picks widget from a myracing.com racecard page.
  * Returns [{ position, dogName }] for positions 1, 2, 3.
  *
- * Widget structure:
- *   <div class="rpf-verdict-selection">
- *     <b class="rpf-verdict-selection-prediction">2.</b>
- *     <img class="rpf-verdict-selection-trap" alt="5">
- *     <div class="rpf-verdict-selection-name"><a>DOG NAME</a></div>
+ * Confirmed HTML structure:
+ *   <div class="RpPicks RpPicks--open">
+ *     <div class="RpPicks__picks">
+ *       <div class="RpPicks__pick-tip">
+ *         <div class="RpPicks__tip">
+ *           <div class="RpPicks__position">1st</div>
+ *           <div class="RpPicks__horse-name">Courancove Moll</div>
+ *         </div>
+ *       </div>
+ *       ...
+ *     </div>
  *   </div>
- *
- * Position 1 is sometimes only in the verdict text — we find it by matching
- * runner names that appear in the text but weren't listed in the structured picks.
  */
 function parseVerdicts(html) {
   const $       = cheerio.load(html);
   const results = [];
-  const pickedNorm = new Set();
 
-  // ── Structured picks (typically 2nd and 3rd, sometimes all three) ──────────
-  $('.rpf-verdict-selection').each((_, el) => {
-    const predText = $(el).find('b.rpf-verdict-selection-prediction').text().trim();
-    const position = parseInt(predText, 10);
-    if (!position || position > 3) return;
-
-    const dogName = norm($(el).find('.rpf-verdict-selection-name a').text());
+  $('.RpPicks__pick-tip').each((_, el) => {
+    const posText = norm($(el).find('.RpPicks__position').text());
+    const dogName = norm($(el).find('.RpPicks__horse-name').text());
     if (!dogName) return;
 
+    const position = posText.startsWith('1') ? 1
+                   : posText.startsWith('2') ? 2
+                   : posText.startsWith('3') ? 3
+                   : null;
+    if (!position) return;
+
     results.push({ position, dogName });
-    pickedNorm.add(normKey(dogName));
   });
-
-  // ── Fallback: find 1st pick from verdict prose text ───────────────────────
-  const hasFirst = results.some(r => r.position === 1);
-  if (!hasFirst) {
-    // Collect all runner names on the page from trap rows
-    const runners = [];
-    $('a.rpb-greyhound, a[class*="rpb-greyhound"], .rpf-verdict-selection-name a').each((_, el) => {
-      const name = norm($(el).text());
-      if (name && !runners.includes(name)) runners.push(name);
-    });
-
-    const verdictText = ($('.rpf-verdict').text() || '').toLowerCase();
-    if (verdictText) {
-      for (const name of runners) {
-        if (pickedNorm.has(normKey(name))) continue;
-        if (verdictText.includes(name.toLowerCase())) {
-          results.push({ position: 1, dogName: name });
-          break;
-        }
-      }
-    }
-  }
 
   return results;
 }
