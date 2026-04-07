@@ -63,13 +63,38 @@ async function scrapeMyRacingTips() {
     }
 
     // Batch-fetch racecard pages 4 at a time
+    let debugDone = false;
     const CONCURRENCY = 4;
     for (let i = 0; i < racecards.length; i += CONCURRENCY) {
       const batch = racecards.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async rc => {
         try {
-          const html    = await fetchHtml(rc.url);
+          const html     = await fetchHtml(rc.url);
           const verdicts = parseVerdicts(html);
+
+          // Debug first racecard to show HTML around verdict area
+          if (!debugDone) {
+            debugDone = true;
+            const $ = cheerio.load(html);
+            // Show snippet around any "verdict" text
+            const verdictEl = $('[class*="verdict"], [class*="Verdict"]').first();
+            if (verdictEl.length) {
+              console.log('[MyRacing] Debug verdict HTML:', verdictEl.parent().html()?.slice(0, 800));
+            } else {
+              // Show all unique class names that contain useful keywords
+              const classes = new Set();
+              $('[class]').each((_, el) => {
+                const c = $( el).attr('class') || '';
+                if (/verdict|predict|select|tip|runner|dog/i.test(c)) classes.add(c);
+              });
+              console.log('[MyRacing] Debug - no verdict el. Relevant classes:', [...classes].slice(0, 20).join(' | '));
+              // Also show a 500-char snippet from the middle of the body
+              const bodyText = $('body').html() || '';
+              const mid = Math.floor(bodyText.length / 2);
+              console.log('[MyRacing] Debug body midpoint:', bodyText.slice(mid, mid + 500).replace(/\s+/g, ' '));
+            }
+          }
+
           for (const v of verdicts) {
             tips.push({
               source:     SOURCE,
