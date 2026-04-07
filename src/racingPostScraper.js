@@ -120,16 +120,9 @@ async function scrapeRacingPostTips(races) {
     }
 
     // ── Step 3: Fetch tips for each meeting ──────────────────────────────────
-    let consecutiveMisses = 0;
     for (const group of meetingGroups) {
       const { name, raceIds } = group;
       if (!raceIds.length) continue;
-
-      // Circuit breaker: if first 3 meetings all fail, RP tips aren't available today
-      if (consecutiveMisses >= 3) {
-        console.warn('[RPScraper] 3 consecutive misses — RP tips unavailable, aborting early');
-        break;
-      }
 
       const prevCount = allTipsJsons.length;
       const firstId   = raceIds[0];
@@ -141,14 +134,11 @@ async function scrapeRacingPostTips(races) {
 
         if (allTipsJsons.length > prevCount) {
           console.log(`[RPScraper] ${name}: got tips response (${raceIds.length} races)`);
-          consecutiveMisses = 0;
         } else {
           console.log(`[RPScraper] ${name}: no tips response`);
-          consecutiveMisses++;
         }
       } catch (err) {
         console.warn(`[RPScraper] ${name}: navigation failed — ${err.message}`);
-        consecutiveMisses++;
       }
     }
 
