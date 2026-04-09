@@ -126,16 +126,14 @@
 
     <!-- Tab bar -->
     <div class="tab-bar">
-      <div class="tab-bar-left">
-        <button id="tab-btn-upcoming" class="tab-btn tab-btn-active" onclick="setTab('upcoming')">Upcoming</button>
-        <button id="hide-finished-btn" class="tab-sub-btn" onclick="toggleHideFinished()">Hide Finished</button>
-      </div>
+      <button id="tab-btn-upcoming" class="tab-btn tab-btn-active" onclick="setTab('upcoming')">Upcoming</button>
       <button id="tab-btn-results"  class="tab-btn"                onclick="setTab('results')">Results <span id="results-count" class="tab-count"></span></button>
     </div>
 
     <!-- Upcoming tab -->
     <div id="tab-upcoming">
       <div class="sort-toggle-wrap">
+        <button id="hide-finished-btn" class="sort-btn" onclick="toggleHideFinished()">Hide Finished</button>
         <div class="sort-toggle" role="group" aria-label="Sort order">
           <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
           <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
