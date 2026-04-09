@@ -154,4 +154,95 @@ function getWinStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
   };
 }
 
-module.exports = { storeRunners, getWinStats, gradeScore };
+// ── Full run stats (requires Timeform data with all positions) ────────────────
+
+/**
+ * Return comprehensive stats for a dog using all finishing positions.
+ * Falls back to wins-only signals when non-winner rows aren't present.
+ *
+ * @param {string} dogNameNorm
+ * @param {object} opts
+ * @param {number} opts.days    Look-back window in days (default 30)
+ * @param {string} opts.venue   Current race venue
+ * @param {number} opts.trap    Current trap number
+ *
+ * @returns {{
+ *   runCount:       number,
+ *   winCount:       number,
+ *   winRate:        number,   0–1
+ *   avgPosition:    number,   mean finishing position (lower = better); null if no data
+ *   daysSinceRun:   number|null,
+ *   avgGradeScore:  number,
+ *   venueWins:      number,
+ *   hasFullHistory: boolean,  true if non-winner rows exist (Timeform data)
+ *   hasHistory:     boolean,
+ * }}
+ */
+function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {}) {
+  const db    = getDb();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split('T')[0];
+
+  const runs = db.prepare(`
+    SELECT race_date, venue, trap, grade, position
+    FROM   dog_run_history
+    WHERE  dog_name_norm = ?
+      AND  race_date >= ?
+    ORDER  BY race_date DESC
+  `).all(dogNameNorm, sinceStr);
+
+  if (!runs.length) {
+    return {
+      runCount: 0, winCount: 0, winRate: 0, avgPosition: null,
+      daysSinceRun: null, avgGradeScore: 0, venueWins: 0,
+      hasFullHistory: false, hasHistory: false,
+    };
+  }
+
+  const wins    = runs.filter(r => r.position === 1);
+  const winCount = wins.length;
+  const runCount = runs.length;
+  const winRate  = runCount > 0 ? winCount / runCount : 0;
+
+  // Days since most recent run
+  const latest     = new Date(runs[0].race_date);
+  const today      = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysSinceRun = Math.floor((today - latest) / 86400000);
+
+  // Average grade (from all runs, not just wins)
+  const gradedRuns    = runs.filter(r => r.grade);
+  const avgGradeScore = gradedRuns.length
+    ? gradedRuns.reduce((s, r) => s + gradeScore(r.grade), 0) / gradedRuns.length
+    : 0;
+
+  // Average finishing position
+  const avgPosition = runCount > 0
+    ? runs.reduce((s, r) => s + r.position, 0) / runCount
+    : null;
+
+  // Venue wins
+  const venueNorm = (venue || '').toLowerCase().trim();
+  const venueWins = venue
+    ? wins.filter(w => (w.venue || '').toLowerCase().trim() === venueNorm).length
+    : 0;
+
+  // Determine if we have full (non-winners-only) data
+  // If any run has position > 1, data is from Timeform (full)
+  const hasFullHistory = runs.some(r => r.position > 1);
+
+  return {
+    runCount,
+    winCount,
+    winRate,
+    avgPosition,
+    daysSinceRun,
+    avgGradeScore,
+    venueWins,
+    hasFullHistory,
+    hasHistory: true,
+  };
+}
+
+module.exports = { storeRunners, getWinStats, getRunStats, gradeScore };

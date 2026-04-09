@@ -1,7 +1,10 @@
 'use strict';
 
 /**
- * backfillHistory.js — one-off script to seed dog_run_history from GBGB API.
+ * backfillHistory.js — seed dog_run_history from Timeform results pages.
+ *
+ * Timeform provides full finishing positions (1st–6th) for all runners,
+ * enabling the full algorithm mode (win rate, avg position, grade quality).
  *
  * Usage:
  *   node scripts/backfillHistory.js           # backfill last 30 days
@@ -10,13 +13,23 @@
  *
  * Safe to re-run — UNIQUE constraint on (race_date, venue, race_time, dog_name_norm)
  * means duplicate rows are silently ignored.
+ *
+ * Note: Timeform may block days with no meetings or very old dates.
+ * Use --gbgb flag to fall back to GBGB winners-only data for any day that
+ * Timeform returns no runners.
+ *
+ * Options:
+ *   --gbgb    Also try GBGB API as fallback for days Timeform has no data
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-const { fetchGbgbData } = require('../src/gbgbResults');
-const { storeRunners }  = require('../src/dogHistory');
-const { getDb }         = require('../src/database');
+const { fetchTimeformResults } = require('../src/timeformResultsScraper');
+const { fetchGbgbData }        = require('../src/gbgbResults');
+const { storeRunners }         = require('../src/dogHistory');
+const { getDb }                = require('../src/database');
+
+const useGbgbFallback = process.argv.includes('--gbgb');
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -37,12 +50,6 @@ function daysAgo(n) {
   return d.toISOString().split('T')[0];
 }
 
-function todayStr() {
-  return new Date().toISOString().split('T')[0];
-}
-
-// ── Delay helper ──────────────────────────────────────────────────────────────
-
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -50,24 +57,23 @@ function sleep(ms) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
 
   let dates;
   if (args.length === 0) {
-    // Default: last 30 days (excluding today — already handled by live refresh)
     dates = dateRange(daysAgo(30), daysAgo(1));
   } else if (args.length === 1 && /^\d+$/.test(args[0])) {
-    // Number of days
     dates = dateRange(daysAgo(parseInt(args[0], 10)), daysAgo(1));
   } else if (args.length === 2) {
-    // Explicit date range
     dates = dateRange(args[0], args[1]);
   } else {
-    console.error('Usage: node scripts/backfillHistory.js [days | startDate endDate]');
+    console.error('Usage: node scripts/backfillHistory.js [days | startDate endDate] [--gbgb]');
     process.exit(1);
   }
 
-  console.log(`\n🐕 Backfilling dog history for ${dates.length} days (${dates[0]} → ${dates[dates.length - 1]})\n`);
+  const source = useGbgbFallback ? 'Timeform (GBGB fallback)' : 'Timeform';
+  console.log(`\n🐕 Backfilling dog history via ${source}`);
+  console.log(`   ${dates.length} days: ${dates[0]} → ${dates[dates.length - 1]}\n`);
 
   // Initialise DB (creates tables if needed)
   getDb();
@@ -81,24 +87,36 @@ async function main() {
     process.stdout.write(`[${i + 1}/${dates.length}] ${date} … `);
 
     try {
-      const { results, allRunners } = await fetchGbgbData(date);
+      let allRunners = await fetchTimeformResults(date);
+
+      // Fallback to GBGB if Timeform returned nothing and --gbgb flag is set
+      if (!allRunners.length && useGbgbFallback) {
+        process.stdout.write('(TF empty, trying GBGB) ');
+        const { allRunners: gbgbRunners } = await fetchGbgbData(date);
+        allRunners = gbgbRunners;
+      }
 
       if (!allRunners.length) {
         console.log('no data');
         skipped++;
       } else {
         storeRunners(allRunners);
+        // Count distinct races from this batch
+        const races = new Set(allRunners.map(r => `${r.venue}|${r.raceTime}`)).size;
         totalRunners += allRunners.length;
-        totalRaces   += results.length;
-        console.log(`${results.length} races, ${allRunners.length} runners stored`);
+        totalRaces   += races;
+        // Show whether data is full (has non-winners) or winners-only
+        const hasNonWinners = allRunners.some(r => r.position > 1);
+        const mode = hasNonWinners ? 'full' : 'winners-only';
+        console.log(`${races} races, ${allRunners.length} runners stored (${mode})`);
       }
     } catch (err) {
       console.log(`ERROR: ${err.message}`);
       skipped++;
     }
 
-    // Polite delay between requests — avoid hammering GBGB
-    if (i < dates.length - 1) await sleep(1500);
+    // Polite delay — avoid hammering Timeform
+    if (i < dates.length - 1) await sleep(2000);
   }
 
   console.log(`

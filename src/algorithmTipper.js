@@ -3,19 +3,25 @@
 /**
  * algorithmTipper.js — proprietary greyhound tip algorithm.
  *
- * Note: GBGB results API returns winners only (position = 1).
- * All form signals are therefore designed around winning history.
+ * Operates in two modes depending on the data available in dog_run_history:
  *
- * Signals and weights:
- * ─────────────────────────────────────────────────────────────────────────────
+ * ── Mode A: Full history (Timeform data — all finishing positions) ─────────────
  *  Signal              Weight  Description
- *  ──────────────────  ──────  ─────────────────────────────────────────────
+ *  ──────────────────  ──────  ────────────────────────────────────────────────
+ *  Win rate            30%     Wins / total runs — normalised within race
+ *  Avg position        25%     Mean finishing position (lower = better)
+ *  Grade quality       20%     Avg grade of races entered
+ *  Trap bias           15%     Venue-specific trap win % (hardcoded stats)
+ *  Venue wins          10%     Wins at this specific track
+ *
+ * ── Mode B: Winners-only history (GBGB backfill data) ────────────────────────
+ *  Signal              Weight  Description
+ *  ──────────────────  ──────  ────────────────────────────────────────────────
  *  Win frequency       30%     Wins in last 30 days — normalised within race
  *  Win recency         25%     Days since last win — recent winners score higher
  *  Grade quality       20%     Average grade of wins — A1 wins beat A6 wins
  *  Trap bias           15%     Venue-specific trap win % (hardcoded stats)
  *  Venue wins          10%     Has this dog won at this track before?
- * ─────────────────────────────────────────────────────────────────────────────
  *
  * Dogs with no history get a neutral score (0.5) on history-based signals
  * so trap bias can still differentiate them.
@@ -23,7 +29,7 @@
  * Confidence filter: only tip if score gap between 1st and 2nd > MIN_GAP.
  */
 
-const { getWinStats } = require('./dogHistory');
+const { getRunStats } = require('./dogHistory');
 
 // ── Trap bias table ───────────────────────────────────────────────────────────
 
@@ -49,15 +55,15 @@ const TRAP_BIAS = {
 };
 
 const WEIGHTS = {
-  winFrequency: 0.30,
-  winRecency:   0.25,
-  gradeQuality: 0.20,
-  trapBias:     0.15,
-  venueWins:    0.10,
+  primary:   0.30,  // win rate (full) or win frequency (winners-only)
+  secondary: 0.25,  // avg position (full) or win recency (winners-only)
+  grade:     0.20,
+  trapBias:  0.15,
+  venue:     0.10,
 };
 
 const MIN_CONFIDENCE_GAP = 0.04;
-const MAX_DAYS_SINCE_WIN = 30; // beyond this, recency score = 0
+const MAX_DAYS_SINCE_WIN = 30;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,10 +84,6 @@ function trapBiasScore(venue, trap) {
   return normaliseValues(biases)[trap - 1];
 }
 
-/**
- * Recency score: 1.0 if won yesterday, decays linearly to 0 at MAX_DAYS_SINCE_WIN.
- * Dogs with no history get 0.5 (neutral).
- */
 function recencyScore(daysSinceWin) {
   if (daysSinceWin === null) return 0.5;
   return Math.max(0, 1 - daysSinceWin / MAX_DAYS_SINCE_WIN);
@@ -90,51 +92,98 @@ function recencyScore(daysSinceWin) {
 // ── Per-race scoring ──────────────────────────────────────────────────────────
 
 function scoreRace(race) {
-  // Gather raw stats for each runner
   const runnerStats = race.runners.map(runner => {
     const dogNorm = norm(runner.name);
     const trap    = runner.trap || null;
-
-    const stats = getWinStats(dogNorm, {
-      days:  30,
-      venue: race.venue,
-      trap,
-    });
-
+    const stats   = getRunStats(dogNorm, { days: 30, venue: race.venue, trap });
     return { runner, dogNorm, trap, stats };
   });
 
-  // Normalise win frequency and grade quality within the race
-  // (so signals are relative to other runners in the same race)
-  const winCounts    = runnerStats.map(r => r.stats.winCount);
-  const gradScores   = runnerStats.map(r => r.stats.avgGradeScore);
-  const venueWinCts  = runnerStats.map(r => r.stats.venueWins);
+  // ── Per-dog primary signal ────────────────────────────────────────────────
+  // Win rate is only valid when we know total runs (Timeform full data).
+  // For GBGB winners-only data, runCount === winCount → winRate always 1.0 → useless.
+  // Use win count (normalised within race) as the primary proxy in that case.
+  //
+  // Per-dog secondary signal:
+  //   Full history   → avg finishing position (lower = better)
+  //   Winners-only   → recency (days since last win, linear decay)
 
+  const winRates    = runnerStats.map(r => r.stats.hasFullHistory ? r.stats.winRate : null);
+  const winCounts   = runnerStats.map(r => r.stats.winCount);
+  const avgPositions = runnerStats.map(r =>
+    r.stats.hasFullHistory ? (r.stats.avgPosition ?? 7) : null
+  );
+  const gradeScores = runnerStats.map(r => r.stats.avgGradeScore);
+  const venueWins   = runnerStats.map(r => r.stats.venueWins);
+
+  // Normalise win rate only among dogs that have full data
+  const fullIndices  = runnerStats.map((r, i) => r.stats.hasFullHistory ? i : -1).filter(i => i >= 0);
+  const normWinRate  = new Array(runnerStats.length).fill(0.5);
+  if (fullIndices.length > 1) {
+    const rates      = fullIndices.map(i => winRates[i]);
+    const normRates  = normaliseValues(rates);
+    fullIndices.forEach((idx, j) => { normWinRate[idx] = normRates[j]; });
+  } else if (fullIndices.length === 1) {
+    normWinRate[fullIndices[0]] = 0.5; // only one dog with full data — no relative signal
+  }
+
+  // Win count normalised across all runners (used for winners-only dogs)
   const normWinCount  = normaliseValues(winCounts);
-  const normGrade     = normaliseValues(gradScores);
-  const normVenueWins = normaliseValues(venueWinCts);
 
-  // Compute final weighted score per runner
+  // Avg position: invert so lower position (better finish) → higher score
+  const normAvgPos = new Array(runnerStats.length).fill(0.5);
+  if (fullIndices.length > 1) {
+    const inverted    = fullIndices.map(i => -(avgPositions[i]));
+    const normInv     = normaliseValues(inverted);
+    fullIndices.forEach((idx, j) => { normAvgPos[idx] = normInv[j]; });
+  }
+
+  const normGrade     = normaliseValues(gradeScores);
+  const normVenueWins = normaliseValues(venueWins);
+
   return runnerStats.map((rs, i) => {
     const { runner, trap, stats } = rs;
 
-    const s_freq    = stats.hasHistory ? normWinCount[i]  : 0.5;
-    const s_recency = recencyScore(stats.daysSinceWin);
-    const s_grade   = stats.hasHistory ? normGrade[i]     : 0.5;
-    const s_trap    = trapBiasScore(race.venue, trap);
-    const s_venue   = stats.hasHistory ? normVenueWins[i] : 0.5;
+    // Primary: win rate if full history, otherwise win count
+    let s_primary;
+    if (!stats.hasHistory) {
+      s_primary = 0.5;
+    } else if (stats.hasFullHistory) {
+      s_primary = normWinRate[i];
+    } else {
+      s_primary = normWinCount[i];
+    }
+
+    // Secondary: avg position if full history, otherwise recency
+    let s_secondary;
+    if (!stats.hasHistory) {
+      s_secondary = 0.5;
+    } else if (stats.hasFullHistory) {
+      s_secondary = normAvgPos[i];
+    } else {
+      s_secondary = recencyScore(stats.daysSinceRun);
+    }
+
+    const s_grade = stats.hasHistory ? normGrade[i]     : 0.5;
+    const s_trap  = trapBiasScore(race.venue, trap);
+    const s_venue = stats.hasHistory ? normVenueWins[i] : 0.5;
 
     const score =
-      s_freq    * WEIGHTS.winFrequency +
-      s_recency * WEIGHTS.winRecency   +
-      s_grade   * WEIGHTS.gradeQuality +
-      s_trap    * WEIGHTS.trapBias     +
-      s_venue   * WEIGHTS.venueWins;
+      s_primary   * WEIGHTS.primary   +
+      s_secondary * WEIGHTS.secondary +
+      s_grade     * WEIGHTS.grade     +
+      s_trap      * WEIGHTS.trapBias  +
+      s_venue     * WEIGHTS.venue;
+
+    const mode = !stats.hasHistory ? 'no-data'
+               : stats.hasFullHistory ? 'full'
+               : 'winners-only';
 
     return {
       runner,
       score,
-      signals: { s_freq, s_recency, s_grade, s_trap, s_venue },
+      signals: { s_primary, s_secondary, s_grade, s_trap, s_venue },
+      mode,
       hasHistory: stats.hasHistory,
     };
   }).sort((a, b) => b.score - a.score);
