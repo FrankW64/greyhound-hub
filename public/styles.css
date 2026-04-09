@@ -487,8 +487,7 @@ body {
 /* ── Sort toggle ──────────────────────────────────────────────────────────── */
 .sort-toggle-wrap {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: flex-end;
   margin-bottom: 16px;
 }
 .sort-toggle {
@@ -510,7 +509,7 @@ body {
 }
 .sort-btn:hover { background: var(--border); color: var(--text); }
 .sort-btn-active { background: var(--accent); color: #fff !important; }
-#hide-finished-btn { border-radius: 999px; border: 1px solid var(--border); }
+.tab-inline-toggle { margin-left: auto; align-self: center; }
 
 /* ── Race venue label (flat / by-time mode) ───────────────────────────────── */
 .race-venue-label {
