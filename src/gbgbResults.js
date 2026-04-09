@@ -12,6 +12,31 @@ const axios = require('axios');
 
 const BASE_URL = 'https://api.gbgb.org.uk/api/results';
 
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept':     'application/json, text/plain, */*',
+  'Referer':    'https://www.gbgb.org.uk/',
+};
+
+/** Fetch with up to `retries` attempts, waiting `delayMs` between each. */
+async function fetchWithRetry(params, retries = 3, delayMs = 2000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const { data } = await axios.get(BASE_URL, { params, headers: HEADERS, timeout: 15000, maxRedirects: 5 });
+      return data;
+    } catch (err) {
+      const status = err.response?.status;
+      if (attempt < retries && (status === 503 || status === 429 || status === 502)) {
+        console.warn(`[GBGBResults] ${status} on attempt ${attempt}, retrying in ${delayMs}ms…`);
+        await new Promise(r => setTimeout(r, delayMs));
+        delayMs *= 2; // exponential backoff
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
@@ -38,12 +63,7 @@ async function fetchGbgbData(date) {
     let totalPages = 1;
 
     while (page <= totalPages) {
-      const { data } = await axios.get(BASE_URL, {
-        params: { date: targetDate, page },
-        timeout: 15000,
-        maxRedirects: 5,
-      });
-
+      const data = await fetchWithRetry({ date: targetDate, page });
       if (!data || !Array.isArray(data.items)) break;
       totalPages = data.meta?.pageCount || 1;
 
