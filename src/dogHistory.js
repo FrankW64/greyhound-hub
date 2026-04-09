@@ -3,11 +3,13 @@
 /**
  * dogHistory.js — store and query per-dog form from GBGB run history.
  *
+ * Important: the GBGB results API only returns winners (resultPosition = 1).
+ * All queries are therefore based on winning runs only. Signals are designed
+ * around what winners-only data can meaningfully tell us.
+ *
  * Public API:
- *   storeRunners(runners)          → void   — persist today's GBGB runner rows
- *   getForm(dogNameNorm, opts)     → form   — last N runs + aggregated stats
- *   getVenueRecord(dogNameNorm, venue) → { runs, wins, avgPos }
- *   getGradeHistory(dogNameNorm)   → [{ grade, date }] newest first
+ *   storeRunners(runners)           → void
+ *   getWinStats(dogNameNorm, opts)  → win stats object
  */
 
 const { getDb } = require('./database');
@@ -16,12 +18,37 @@ function norm(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// ── Store runners ─────────────────────────────────────────────────────────────
+// ── Grade scoring ─────────────────────────────────────────────────────────────
 
 /**
- * Persist an array of runner objects (from fetchGbgbAllRunners) into
- * dog_run_history. UNIQUE constraint silently ignores duplicates.
+ * Convert a GBGB grade string to a numeric quality score (higher = better).
+ * A1 is the highest graded race; A10/B grades are lower class.
+ * Open/OR races score highest.
  */
+function gradeScore(grade) {
+  if (!grade) return 0;
+  const g = grade.toUpperCase().trim();
+
+  // Open/OR grades — top level
+  if (/^(OR|OPEN|OA|OI)/.test(g)) return 10;
+
+  // Extract letter prefix and number
+  const m = g.match(/^([A-Z]+)(\d+)?/);
+  if (!m) return 0;
+
+  const letter = m[1];
+  const num    = parseInt(m[2] || '1', 10);
+
+  const baseScore = {
+    A: 8, B: 5, D: 4, S: 4, P: 2, T: 1,
+  }[letter] ?? 1;
+
+  // Within a letter group, lower number = better quality
+  return Math.max(0, baseScore - (num - 1) * 0.5);
+}
+
+// ── Store runners ─────────────────────────────────────────────────────────────
+
 function storeRunners(runners) {
   if (!runners || !runners.length) return;
   const db  = getDb();
@@ -39,17 +66,17 @@ function storeRunners(runners) {
   const run = db.transaction(() => {
     for (const r of runners) {
       insert.run({
-        race_date:    r.raceDate,
-        venue:        r.venue,
-        race_time:    r.raceTime,
-        grade:        r.grade     || null,
-        distance:     r.distance  || null,
-        dog_name:     r.dogName,
+        race_date:     r.raceDate,
+        venue:         r.venue,
+        race_time:     r.raceTime,
+        grade:         r.grade    || null,
+        distance:      r.distance || null,
+        dog_name:      r.dogName,
         dog_name_norm: norm(r.dogName),
-        trap:         r.trap      || null,
-        position:     r.position,
-        run_time:     r.runTime   || null,
-        created_at:   now,
+        trap:          r.trap     || null,
+        position:      r.position,
+        run_time:      r.runTime  || null,
+        created_at:    now,
       });
     }
   });
@@ -57,134 +84,74 @@ function storeRunners(runners) {
   run();
 }
 
-// ── Query form ────────────────────────────────────────────────────────────────
+// ── Win stats ─────────────────────────────────────────────────────────────────
 
 /**
- * Return recent form for a dog.
- * @param {string} dogNameNorm   Normalised dog name
+ * Return all meaningful win-based stats for a dog.
+ *
+ * @param {string} dogNameNorm
  * @param {object} opts
- * @param {number} opts.runs     How many recent runs to include (default 10)
+ * @param {number} opts.days    Look-back window in days (default 30)
+ * @param {string} opts.venue   Current race venue (for venue signal)
+ * @param {number} opts.trap    Current trap number (for trap signal)
+ *
  * @returns {{
- *   recentRuns: Array,
- *   winRate:    number,   // 0–1
- *   avgPos:     number,
- *   totalRuns:  number,
- *   avgTime:    number|null,
- *   bestTime:   number|null,
+ *   winCount:       number,   total wins in window (0 = no history)
+ *   daysSinceWin:   number|null,  days since most recent win (null = never)
+ *   avgGradeScore:  number,   mean grade quality of wins (0–10)
+ *   venueWins:      number,   wins at this specific venue
+ *   trapWins:       number,   wins from this specific trap
+ *   hasHistory:     boolean,
  * }}
  */
-function getForm(dogNameNorm, { runs = 10 } = {}) {
-  const db = getDb();
+function getWinStats(dogNameNorm, { days = 30, venue = null, trap = null } = {}) {
+  const db    = getDb();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split('T')[0];
 
-  const recentRuns = db.prepare(`
-    SELECT race_date, venue, race_time, grade, distance, trap, position, run_time
+  const wins = db.prepare(`
+    SELECT race_date, venue, trap, grade
     FROM   dog_run_history
     WHERE  dog_name_norm = ?
-    ORDER  BY race_date DESC, race_time DESC
-    LIMIT  ?
-  `).all(dogNameNorm, runs);
+      AND  race_date >= ?
+      AND  position = 1
+    ORDER  BY race_date DESC
+  `).all(dogNameNorm, sinceStr);
 
-  if (!recentRuns.length) {
-    return { recentRuns: [], winRate: null, avgPos: null, totalRuns: 0, avgTime: null, bestTime: null };
+  if (!wins.length) {
+    return { winCount: 0, daysSinceWin: null, avgGradeScore: 0, venueWins: 0, trapWins: 0, hasHistory: false };
   }
 
-  const totalRuns = recentRuns.length;
-  const wins      = recentRuns.filter(r => r.position === 1).length;
-  const winRate   = wins / totalRuns;
-  const avgPos    = recentRuns.reduce((s, r) => s + r.position, 0) / totalRuns;
+  // Days since most recent win
+  const latest      = new Date(wins[0].race_date);
+  const today       = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysSinceWin = Math.floor((today - latest) / 86400000);
 
-  const timesWithData = recentRuns.filter(r => r.run_time > 0);
-  const avgTime = timesWithData.length
-    ? timesWithData.reduce((s, r) => s + r.run_time, 0) / timesWithData.length
-    : null;
-  const bestTime = timesWithData.length
-    ? Math.min(...timesWithData.map(r => r.run_time))
-    : null;
+  // Average grade quality score
+  const gradedWins   = wins.filter(w => w.grade);
+  const avgGradeScore = gradedWins.length
+    ? gradedWins.reduce((s, w) => s + gradeScore(w.grade), 0) / gradedWins.length
+    : 0;
 
-  return { recentRuns, winRate, avgPos, totalRuns, avgTime, bestTime };
-}
+  // Venue and trap wins
+  const venueNorm = (venue || '').toLowerCase().trim();
+  const venueWins = venue
+    ? wins.filter(w => (w.venue || '').toLowerCase().trim() === venueNorm).length
+    : 0;
+  const trapWins  = trap
+    ? wins.filter(w => w.trap === trap).length
+    : 0;
 
-// ── Venue record ──────────────────────────────────────────────────────────────
-
-/**
- * How does this dog perform at a specific venue?
- */
-function getVenueRecord(dogNameNorm, venue) {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT position, run_time
-    FROM   dog_run_history
-    WHERE  dog_name_norm = ? AND LOWER(venue) = LOWER(?)
-    ORDER  BY race_date DESC
-    LIMIT  20
-  `).all(dogNameNorm, venue);
-
-  if (!rows.length) return { runs: 0, wins: 0, winRate: null, avgPos: null };
-
-  const wins   = rows.filter(r => r.position === 1).length;
-  const avgPos = rows.reduce((s, r) => s + r.position, 0) / rows.length;
   return {
-    runs:    rows.length,
-    wins,
-    winRate: wins / rows.length,
-    avgPos,
+    winCount:      wins.length,
+    daysSinceWin,
+    avgGradeScore,
+    venueWins,
+    trapWins,
+    hasHistory:    true,
   };
 }
 
-// ── Grade trend ───────────────────────────────────────────────────────────────
-
-/**
- * Return recent grade history for a dog, newest first.
- * Used to detect whether a dog is being raised/lowered in class.
- */
-function getGradeHistory(dogNameNorm, limit = 6) {
-  const db = getDb();
-  return db.prepare(`
-    SELECT grade, race_date, position
-    FROM   dog_run_history
-    WHERE  dog_name_norm = ? AND grade IS NOT NULL
-    ORDER  BY race_date DESC, race_time DESC
-    LIMIT  ?
-  `).all(dogNameNorm, limit);
-}
-
-/**
- * Estimate grade trajectory: positive = improving (dropping in grade number),
- * negative = declining, 0 = stable or insufficient data.
- */
-function gradeTrajectory(dogNameNorm) {
-  const history = getGradeHistory(dogNameNorm, 4);
-  if (history.length < 2) return 0;
-
-  // Extract numeric part of grade (A1=1, A6=6, OR1=1, etc.)
-  const gradeNum = g => parseInt((g || '').replace(/[^0-9]/g, ''), 10) || 0;
-
-  const latest   = gradeNum(history[0].grade);
-  const previous = gradeNum(history[history.length - 1].grade);
-
-  if (!latest || !previous) return 0;
-  // Dropping grade number = improving (A6→A5 is positive)
-  return previous - latest; // positive = improving
-}
-
-// ── Trap record ───────────────────────────────────────────────────────────────
-
-/**
- * How does this dog perform from a specific trap?
- */
-function getTrapRecord(dogNameNorm, trap) {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT position
-    FROM   dog_run_history
-    WHERE  dog_name_norm = ? AND trap = ?
-    ORDER  BY race_date DESC
-    LIMIT  20
-  `).all(dogNameNorm, trap);
-
-  if (!rows.length) return { runs: 0, wins: 0, winRate: null };
-  const wins = rows.filter(r => r.position === 1).length;
-  return { runs: rows.length, wins, winRate: wins / rows.length };
-}
-
-module.exports = { storeRunners, getForm, getVenueRecord, gradeTrajectory, getTrapRecord };
+module.exports = { storeRunners, getWinStats, gradeScore };

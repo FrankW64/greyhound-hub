@@ -3,26 +3,30 @@
 /**
  * algorithmTipper.js — proprietary greyhound tip algorithm.
  *
- * Scores each runner in a race using signals derived from GBGB run history:
+ * Note: GBGB results API returns winners only (position = 1).
+ * All form signals are therefore designed around winning history.
  *
- *   Signal              Weight   Notes
- *   ─────────────────── ──────   ──────────────────────────────────────────────
- *   Trap bias           0.20     Venue-specific win % for this trap
- *   Recent win rate     0.30     Win% across last 10 runs
- *   Avg finishing pos   0.20     Lower is better; normalised within race
- *   Venue record        0.15     Win% at this specific venue
- *   Grade trajectory    0.10     Positive = dropping in grade = improving
- *   Trap record         0.05     Win% from this trap across all venues
+ * Signals and weights:
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Signal              Weight  Description
+ *  ──────────────────  ──────  ─────────────────────────────────────────────
+ *  Win frequency       30%     Wins in last 30 days — normalised within race
+ *  Win recency         25%     Days since last win — recent winners score higher
+ *  Grade quality       20%     Average grade of wins — A1 wins beat A6 wins
+ *  Trap bias           15%     Venue-specific trap win % (hardcoded stats)
+ *  Venue wins          10%     Has this dog won at this track before?
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * Only the top-scoring runner per race is tipped (position = 1).
- * A minimum confidence threshold filters out races with no clear favourite.
+ * Dogs with no history get a neutral score (0.5) on history-based signals
+ * so trap bias can still differentiate them.
  *
- * Source key: 'algorithm'
+ * Confidence filter: only tip if score gap between 1st and 2nd > MIN_GAP.
  */
 
-const { getForm, getVenueRecord, gradeTrajectory, getTrapRecord } = require('./dogHistory');
+const { getWinStats } = require('./dogHistory');
 
-// Trap bias table (same data as app.js — single source of truth kept here)
+// ── Trap bias table ───────────────────────────────────────────────────────────
+
 const TRAP_BIAS = {
   'Central Park':  [15.3, 18.1, 18.4, 20.4, 16.6, 19.5],
   'Doncaster':     [22.9, 18.8, 19.8, 18.8, 17.9, 23.6],
@@ -45,24 +49,18 @@ const TRAP_BIAS = {
 };
 
 const WEIGHTS = {
-  trapBias:       0.20,
-  recentWinRate:  0.30,
-  avgPos:         0.20,
-  venueRecord:    0.15,
-  gradeTrend:     0.10,
-  trapRecord:     0.05,
+  winFrequency: 0.30,
+  winRecency:   0.25,
+  gradeQuality: 0.20,
+  trapBias:     0.15,
+  venueWins:    0.10,
 };
 
-// Minimum score gap between 1st and 2nd runner to emit a tip (confidence filter)
-const MIN_CONFIDENCE_GAP = 0.03;
+const MIN_CONFIDENCE_GAP = 0.04;
+const MAX_DAYS_SINCE_WIN = 30; // beyond this, recency score = 0
 
-function norm(name) {
-  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// ── Scoring helpers ───────────────────────────────────────────────────────────
-
-/** Normalise an array of values to [0, 1] range. */
 function normaliseValues(values) {
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -70,87 +68,83 @@ function normaliseValues(values) {
   return values.map(v => (v - min) / (max - min));
 }
 
-/** Trap bias score (0–1) for a given venue + trap (1-indexed). */
+function norm(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function trapBiasScore(venue, trap) {
   const biases = TRAP_BIAS[venue];
   if (!biases || !trap || trap < 1 || trap > biases.length) return 0.5;
-  const vals = normaliseValues(biases);
-  return vals[trap - 1];
+  return normaliseValues(biases)[trap - 1];
+}
+
+/**
+ * Recency score: 1.0 if won yesterday, decays linearly to 0 at MAX_DAYS_SINCE_WIN.
+ * Dogs with no history get 0.5 (neutral).
+ */
+function recencyScore(daysSinceWin) {
+  if (daysSinceWin === null) return 0.5;
+  return Math.max(0, 1 - daysSinceWin / MAX_DAYS_SINCE_WIN);
 }
 
 // ── Per-race scoring ──────────────────────────────────────────────────────────
 
-/**
- * Score every runner in a race and return a sorted array of
- * { runner, score, signals } objects, best first.
- */
 function scoreRace(race) {
-  const scored = race.runners.map(runner => {
+  // Gather raw stats for each runner
+  const runnerStats = race.runners.map(runner => {
     const dogNorm = norm(runner.name);
     const trap    = runner.trap || null;
 
-    // --- Signal 1: trap bias
-    const s_trapBias = trapBiasScore(race.venue, trap);
+    const stats = getWinStats(dogNorm, {
+      days:  30,
+      venue: race.venue,
+      trap,
+    });
 
-    // --- Signal 2 & 3: recent form
-    const form = getForm(dogNorm, { runs: 10 });
-    const s_winRate = form.winRate !== null ? form.winRate : 0.167; // default = random
+    return { runner, dogNorm, trap, stats };
+  });
 
-    // avgPos: lower = better, so invert after normalisation (handled per-race below)
-    const rawAvgPos = form.avgPos !== null ? form.avgPos : 3.5; // middle of 6
+  // Normalise win frequency and grade quality within the race
+  // (so signals are relative to other runners in the same race)
+  const winCounts    = runnerStats.map(r => r.stats.winCount);
+  const gradScores   = runnerStats.map(r => r.stats.avgGradeScore);
+  const venueWinCts  = runnerStats.map(r => r.stats.venueWins);
 
-    // --- Signal 4: venue record
-    const venueRec  = getVenueRecord(dogNorm, race.venue);
-    const s_venue   = venueRec.winRate !== null ? venueRec.winRate : 0.167;
+  const normWinCount  = normaliseValues(winCounts);
+  const normGrade     = normaliseValues(gradScores);
+  const normVenueWins = normaliseValues(venueWinCts);
 
-    // --- Signal 5: grade trajectory (-n to +n → normalised)
-    const gradeTrend = gradeTrajectory(dogNorm); // positive = improving
-    // Clamp to [-3, 3], map to [0, 1]
-    const s_grade    = Math.min(1, Math.max(0, (gradeTrend + 3) / 6));
+  // Compute final weighted score per runner
+  return runnerStats.map((rs, i) => {
+    const { runner, trap, stats } = rs;
 
-    // --- Signal 6: trap record
-    const trapRec  = trap ? getTrapRecord(dogNorm, trap) : { winRate: null };
-    const s_trap   = trapRec.winRate !== null ? trapRec.winRate : 0.167;
+    const s_freq    = stats.hasHistory ? normWinCount[i]  : 0.5;
+    const s_recency = recencyScore(stats.daysSinceWin);
+    const s_grade   = stats.hasHistory ? normGrade[i]     : 0.5;
+    const s_trap    = trapBiasScore(race.venue, trap);
+    const s_venue   = stats.hasHistory ? normVenueWins[i] : 0.5;
+
+    const score =
+      s_freq    * WEIGHTS.winFrequency +
+      s_recency * WEIGHTS.winRecency   +
+      s_grade   * WEIGHTS.gradeQuality +
+      s_trap    * WEIGHTS.trapBias     +
+      s_venue   * WEIGHTS.venueWins;
 
     return {
       runner,
-      dogNorm,
-      rawAvgPos,
-      signals: { s_trapBias, s_winRate, rawAvgPos, s_venue, s_grade, s_trap },
+      score,
+      signals: { s_freq, s_recency, s_grade, s_trap, s_venue },
+      hasHistory: stats.hasHistory,
     };
-  });
-
-  // Normalise avgPos within the race (lower pos = better, so invert)
-  const avgPosValues = scored.map(s => s.rawAvgPos);
-  const normAvgPos   = normaliseValues(avgPosValues).map(v => 1 - v); // invert
-
-  // Compute final weighted score
-  for (let i = 0; i < scored.length; i++) {
-    const { s_trapBias, s_winRate, s_venue, s_grade, s_trap } = scored[i].signals;
-    scored[i].signals.s_avgPos = normAvgPos[i];
-    scored[i].score =
-      s_trapBias * WEIGHTS.trapBias    +
-      s_winRate  * WEIGHTS.recentWinRate +
-      normAvgPos[i] * WEIGHTS.avgPos   +
-      s_venue    * WEIGHTS.venueRecord +
-      s_grade    * WEIGHTS.gradeTrend  +
-      s_trap     * WEIGHTS.trapRecord;
-  }
-
-  return scored.sort((a, b) => b.score - a.score);
+  }).sort((a, b) => b.score - a.score);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-/**
- * Generate algorithm tips for today's races.
- * Returns an array of tip objects compatible with the rest of the tip pipeline.
- *
- * @param {Array} races  Current race list from DataManager
- * @returns {Array<{ source, sourceName, dogName, venue, raceTime, position, confidence }>}
- */
 function generateAlgorithmTips(races) {
   const tips = [];
+  let skippedNoConfidence = 0;
 
   for (const race of races) {
     if (!race.runners || race.runners.length < 2) continue;
@@ -159,9 +153,8 @@ function generateAlgorithmTips(races) {
     const best   = scored[0];
     const second = scored[1];
 
-    // Confidence filter — skip if margin is too slim
-    const gap = best.score - (second ? second.score : 0);
-    if (gap < MIN_CONFIDENCE_GAP) continue;
+    const gap = best.score - (second?.score ?? 0);
+    if (gap < MIN_CONFIDENCE_GAP) { skippedNoConfidence++; continue; }
 
     tips.push({
       source:     'algorithm',
@@ -174,7 +167,7 @@ function generateAlgorithmTips(races) {
     });
   }
 
-  console.log(`[Algorithm] Generated ${tips.length} tips from ${races.length} races`);
+  console.log(`[Algorithm] ${tips.length} tips from ${races.length} races (${skippedNoConfidence} skipped — low confidence)`);
   return tips;
 }
 
