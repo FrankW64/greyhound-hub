@@ -169,13 +169,20 @@ function setTab(tab) {
 }
 
 // ── Sort mode ─────────────────────────────────────────────────────────────────
-let sortMode     = 'venue';
+let sortMode       = 'venue';
 let lastRenderData = null;
+let hideFinished   = false;
 
 function setSortMode(mode) {
   sortMode = mode;
   document.getElementById('sort-btn-venue')?.classList.toggle('sort-btn-active', mode === 'venue');
   document.getElementById('sort-btn-time')?.classList.toggle('sort-btn-active', mode === 'time');
+  if (lastRenderData) render(lastRenderData);
+}
+
+function toggleHideFinished() {
+  hideFinished = !hideFinished;
+  document.getElementById('hide-finished-btn')?.classList.toggle('sort-btn-active', hideFinished);
   if (lastRenderData) render(lastRenderData);
 }
 
@@ -191,16 +198,21 @@ function render(data) {
     return;
   }
 
+  // Apply hide-finished filter
+  const filteredVenues = hideFinished
+    ? venues.map(v => ({ ...v, races: v.races.filter(r => !r.result) })).filter(v => v.races.length)
+    : venues;
+
   if (sortMode === 'time') {
     // Flatten all races across all venues, sort by time
-    const allRaces = venues.flatMap(v => v.races.map(r => ({ ...r, venue: r.venue || v.name })));
+    const allRaces = filteredVenues.flatMap(v => v.races.map(r => ({ ...r, venue: r.venue || v.name })));
     allRaces.sort((a, b) => a.time.localeCompare(b.time));
     const grid = document.createElement('div');
     grid.className = 'venue-races';
     for (const race of allRaces) grid.appendChild(renderRace(race, true));
     fragment.appendChild(grid);
   } else {
-    for (const venue of venues) fragment.appendChild(renderVenue(venue));
+    for (const venue of filteredVenues) fragment.appendChild(renderVenue(venue));
   }
 
   container.innerHTML = '';
