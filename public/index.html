@@ -128,14 +128,14 @@
     <div class="tab-bar">
       <button id="tab-btn-upcoming" class="tab-btn tab-btn-active" onclick="setTab('upcoming')">Upcoming</button>
       <button id="tab-btn-results"  class="tab-btn"                onclick="setTab('results')">Results <span id="results-count" class="tab-count"></span></button>
-      <div class="sort-toggle tab-inline-toggle">
-        <button id="hide-finished-btn" class="sort-btn" onclick="toggleHideFinished()">Hide Finished</button>
-      </div>
     </div>
 
     <!-- Upcoming tab -->
     <div id="tab-upcoming">
       <div class="sort-toggle-wrap">
+        <div class="sort-toggle">
+          <button id="hide-finished-btn" class="sort-btn" onclick="toggleHideFinished()">Hide Finished</button>
+        </div>
         <div class="sort-toggle" role="group" aria-label="Sort order">
           <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
           <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
