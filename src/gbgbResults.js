@@ -89,12 +89,12 @@ async function fetchGbgbData(date) {
           raceDate:  targetDate,
           venue:     item.trackName    || '',
           raceTime:  normaliseTime(item.raceTime),
-          grade:     item.raceGrade    || null,
-          distance:  item.raceDistance ? parseInt(item.raceDistance, 10) : null,
+          grade:     item.raceClass    || null,   // API field is raceClass not raceGrade
+          distance:  item.raceDistance ? Math.round(parseFloat(item.raceDistance)) : null,
           dogName:   item.dogName,
           trap:      item.trapNumber   ? parseInt(item.trapNumber, 10) : null,
           position:  pos,
-          runTime:   item.sectionalTime ? parseFloat(item.sectionalTime) : null,
+          runTime:   null,  // not available in results API
         });
       }
 
