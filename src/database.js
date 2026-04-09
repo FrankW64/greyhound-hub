@@ -68,6 +68,29 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_results_race  ON results(race_id, race_date);
   `);
 
+  // dog_run_history — one row per runner per race, built from GBGB results API
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS dog_run_history (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      race_date     TEXT    NOT NULL,
+      venue         TEXT    NOT NULL,
+      race_time     TEXT    NOT NULL,
+      grade         TEXT,
+      distance      INTEGER,
+      dog_name      TEXT    NOT NULL,
+      dog_name_norm TEXT    NOT NULL,
+      trap          INTEGER,
+      position      INTEGER NOT NULL,
+      run_time      REAL,
+      created_at    TEXT    NOT NULL,
+      UNIQUE(race_date, venue, race_time, dog_name_norm)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_history_dog   ON dog_run_history(dog_name_norm);
+    CREATE INDEX IF NOT EXISTS idx_history_date  ON dog_run_history(race_date);
+    CREATE INDEX IF NOT EXISTS idx_history_venue ON dog_run_history(dog_name_norm, venue);
+  `);
+
   // Add 2nd/3rd place columns if they don't exist yet (non-destructive migration)
   const cols = _db.prepare("PRAGMA table_info(results)").all().map(c => c.name);
   if (!cols.includes('second_name')) {

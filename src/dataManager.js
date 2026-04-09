@@ -16,7 +16,9 @@ const BetfairClient          = require('./betfair');
 const { fetchAllTips }       = require('./scraper');
 const { fetchRaceCards, fetchTodaysResults } = require('./racecardScraper');
 const ResultsTracker         = require('./resultsTracker');
-const { fetchGbgbResults }   = require('./gbgbResults');
+const { fetchGbgbResults, fetchGbgbAllRunners } = require('./gbgbResults');
+const { storeRunners }       = require('./dogHistory');
+const { generateAlgorithmTips } = require('./algorithmTipper');
 
 class DataManager {
   constructor() {
@@ -140,7 +142,10 @@ class DataManager {
         console.log(`[DataManager] ${verdictTips.length} Timeform verdict tips extracted`);
       }
 
-      const allTips = [...verdictTips, ...tips];
+      // Algorithm tips — generated from historical form data
+      const algoTips = this.useMockData ? [] : generateAlgorithmTips(races);
+
+      const allTips = [...verdictTips, ...tips, ...algoTips];
       this._lastKnownTips = allTips;
       races = mergeTips(races, allTips);
 
@@ -244,6 +249,13 @@ class DataManager {
    */
   async _checkGbgbResults() {
     try {
+      // Fetch full runner data and persist to history (powers the algorithm)
+      const allRunners = await fetchGbgbAllRunners().catch(err => {
+        console.warn('[DataManager] fetchGbgbAllRunners failed:', err.message);
+        return [];
+      });
+      if (allRunners.length) storeRunners(allRunners);
+
       const gbgbResults = await fetchGbgbResults();
       if (!gbgbResults.length) return;
 

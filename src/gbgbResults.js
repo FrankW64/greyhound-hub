@@ -91,4 +91,54 @@ async function fetchGbgbResults(date) {
   }
 }
 
-module.exports = { fetchGbgbResults };
+/**
+ * Fetch all runner data (every finishing position) for a given date.
+ * Used to build the dog_run_history table for form analysis.
+ * Returns one entry per runner: { raceDate, venue, raceTime, grade, distance, dogName, trap, position, runTime }
+ * @param {string} [date]  YYYY-MM-DD
+ */
+async function fetchGbgbAllRunners(date) {
+  const targetDate = date || todayStr();
+  const runners = [];
+
+  try {
+    let page = 1;
+    let totalPages = 1;
+
+    while (page <= totalPages) {
+      const { data } = await axios.get(BASE_URL, {
+        params: { date: targetDate, page },
+        timeout: 15000,
+        maxRedirects: 5,
+      });
+
+      if (!data || !Array.isArray(data.items)) break;
+      totalPages = data.meta?.pageCount || 1;
+
+      for (const item of data.items) {
+        if (!item.dogName || !item.resultPosition) continue;
+        runners.push({
+          raceDate:  targetDate,
+          venue:     item.trackName      || '',
+          raceTime:  normaliseTime(item.raceTime),
+          grade:     item.raceGrade      || null,
+          distance:  item.raceDistance   ? parseInt(item.raceDistance, 10) : null,
+          dogName:   item.dogName,
+          trap:      item.trapNumber     ? parseInt(item.trapNumber, 10) : null,
+          position:  item.resultPosition,
+          runTime:   item.sectionalTime  ? parseFloat(item.sectionalTime) : null,
+        });
+      }
+
+      page++;
+    }
+
+    console.log(`[GBGBResults] ${runners.length} runner history rows for ${targetDate}`);
+    return runners;
+  } catch (err) {
+    console.warn(`[GBGBResults] fetchGbgbAllRunners failed: ${err.message}`);
+    return [];
+  }
+}
+
+module.exports = { fetchGbgbResults, fetchGbgbAllRunners };
