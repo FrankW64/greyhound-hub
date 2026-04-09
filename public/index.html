@@ -134,10 +134,10 @@
     <div id="tab-upcoming">
       <div class="sort-toggle-wrap">
         <div class="sort-toggle" role="group" aria-label="Sort order">
-          <button id="sort-btn-venue" class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
-          <button id="sort-btn-time"  class="sort-btn"                onclick="setSortMode('time')">By Time</button>
+          <button id="hide-finished-btn" class="sort-btn"                onclick="toggleHideFinished()">Hide Finished</button>
+          <button id="sort-btn-venue"    class="sort-btn sort-btn-active" onclick="setSortMode('venue')">By Venue</button>
+          <button id="sort-btn-time"     class="sort-btn"                onclick="setSortMode('time')">By Time</button>
         </div>
-        <button id="hide-finished-btn" class="sort-btn" onclick="toggleHideFinished()">Hide Finished</button>
       </div>
       <div id="races-container"></div>
     </div>
