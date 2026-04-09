@@ -510,7 +510,7 @@ body {
 }
 .sort-btn:hover { background: var(--border); color: var(--text); }
 .sort-btn-active { background: var(--accent); color: #fff !important; }
-#hide-finished-btn { border-radius: 999px; }
+#hide-finished-btn { border-radius: 999px; border: 1px solid var(--border); }
 
 /* ── Race venue label (flat / by-time mode) ───────────────────────────────── */
 .race-venue-label {
