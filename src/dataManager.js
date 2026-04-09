@@ -16,7 +16,7 @@ const BetfairClient          = require('./betfair');
 const { fetchAllTips }       = require('./scraper');
 const { fetchRaceCards, fetchTodaysResults } = require('./racecardScraper');
 const ResultsTracker         = require('./resultsTracker');
-const { fetchGbgbResults, fetchGbgbAllRunners } = require('./gbgbResults');
+const { fetchGbgbData } = require('./gbgbResults');
 const { storeRunners }       = require('./dogHistory');
 const { generateAlgorithmTips } = require('./algorithmTipper');
 
@@ -249,14 +249,9 @@ class DataManager {
    */
   async _checkGbgbResults() {
     try {
-      // Fetch full runner data and persist to history (powers the algorithm)
-      const allRunners = await fetchGbgbAllRunners().catch(err => {
-        console.warn('[DataManager] fetchGbgbAllRunners failed:', err.message);
-        return [];
-      });
+      // Single API call — derive both settled results and full runner history
+      const { results: gbgbResults, allRunners } = await fetchGbgbData();
       if (allRunners.length) storeRunners(allRunners);
-
-      const gbgbResults = await fetchGbgbResults();
       if (!gbgbResults.length) return;
 
       const alreadySettled = this.resultsTracker.getTodaysResults();
