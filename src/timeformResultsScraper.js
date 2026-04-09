@@ -29,13 +29,26 @@ const HEADERS = {
   'Cache-Control':   'no-cache',
 };
 
-async function fetchHtml(url) {
-  const { data } = await axios.get(url, {
-    headers:      HEADERS,
-    timeout:      20000,
-    maxRedirects: 5,
-  });
-  return data;
+async function fetchHtml(url, retries = 3, delayMs = 3000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const { data } = await axios.get(url, {
+        headers:      HEADERS,
+        timeout:      20000,
+        maxRedirects: 5,
+      });
+      return data;
+    } catch (err) {
+      const status = err.response?.status;
+      if (attempt < retries && (status === 429 || status === 503 || status === 502)) {
+        const wait = delayMs * attempt; // 3s, 6s, 9s
+        console.warn(`[TFResults] ${status} on attempt ${attempt}, retrying in ${wait}ms…`);
+        await new Promise(r => setTimeout(r, wait));
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 // ── Venue slug → display name (mirrors racecardScraper) ───────────────────────
@@ -175,8 +188,12 @@ function parseRaceRunners($) {
     });
   }
 
-  // Fallback: if no rrb-runner-details-N rows, try generic rrb-greyhound links with position from order
-  if (!runners.length) {
+  // Fallback: if we only found position-1 runners (or none), the rrb-runner-details-N
+  // selector is not giving us full data. Fall back to order-based position from rrb-greyhound links.
+  const positionsFound = new Set(runners.map(r => r.position));
+  if (positionsFound.size <= 1) {
+    runners.length = 0; // discard any partial position-1 only data
+    seen.clear();
     let pos = 1;
     $('a.rrb-greyhound').each((_, el) => {
       const dogName = normalise($(el).text());
@@ -263,21 +280,15 @@ async function fetchTimeformResults(date) {
   console.log(`[TFResults] ${raceLinks.length} races to fetch for ${date}`);
 
   const allRunners = [];
-  const BATCH      = 3; // polite concurrency
 
-  for (let i = 0; i < raceLinks.length; i += BATCH) {
-    const batch   = raceLinks.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(link => fetchRaceResult(link)));
+  // Sequential fetching with generous delay — Timeform rate-limits aggressive scrapers
+  for (let i = 0; i < raceLinks.length; i++) {
+    const runners = await fetchRaceResult(raceLinks[i]);
+    allRunners.push(...runners);
 
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        allRunners.push(...result.value);
-      }
-    }
-
-    // Polite delay between batches
-    if (i + BATCH < raceLinks.length) {
-      await new Promise(r => setTimeout(r, 800));
+    // Polite delay between every request
+    if (i < raceLinks.length - 1) {
+      await new Promise(r => setTimeout(r, 3500));
     }
   }
 
