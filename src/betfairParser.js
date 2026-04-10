@@ -17,6 +17,19 @@
 
 const GREYHOUND_EVENT_TYPE = '4339';
 
+const UK_VENUES = new Set([
+  'belle vue', 'central park', 'coventry', 'crayford', 'doncaster',
+  'dunstall park', 'harlow', 'henlow', 'hove', 'kinsley', 'monmore',
+  'newcastle', 'nottingham', 'oxford', 'pelaw grange', 'perry barr',
+  'peterborough', 'poole', 'romford', 'sheffield', 'suffolk downs',
+  'sunderland', 'swindon', 'the valley', 'towcester', 'wimbledon',
+  'yarmouth',
+]);
+
+function isUKVenue(venue) {
+  return UK_VENUES.has((venue || '').toLowerCase().trim());
+}
+
 /**
  * Parse a complete NDJSON string from one bz2 file.
  * @param {string} ndjson  Full text content (newline-separated JSON objects)
@@ -56,9 +69,9 @@ function parseMarketFile(ndjson) {
         if (eventTypeId !== GREYHOUND_EVENT_TYPE) return null;
         if (marketType !== 'WIN') return null;
 
-        // Extract venue from eventName or venue field
-        // eventName typically: "Hove 10th Apr" or "10th Apr Hove"
+        // Extract venue and filter to UK only
         venue    = extractVenue(def.venue || def.eventName || '');
+        if (!isUKVenue(venue)) return null;
         raceTime = extractTime(def.marketTime || def.openDate || '');
         raceDate = extractDate(def.marketTime || def.openDate || '');
         distance = extractDistance(def.name || '');
