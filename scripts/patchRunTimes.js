@@ -104,7 +104,7 @@ async function main() {
       console.log(`ERROR: ${err.message}`);
     }
 
-    if (i < dates.length - 1) await sleep(10000);
+    if (i < dates.length - 1) await sleep(5000);
   }
 
   console.log(`\n✅ Done — ${totalUpdated} total run times updated`);

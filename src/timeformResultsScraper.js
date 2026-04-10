@@ -265,7 +265,7 @@ async function fetchTimeformResults(date, { limit = null } = {}) {
 
     // Polite delay between every request — slow enough to avoid 429s
     if (i < racesToFetch.length - 1) {
-      await new Promise(r => setTimeout(r, 10000));
+      await new Promise(r => setTimeout(r, 5000));
     }
   }
 
