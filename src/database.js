@@ -91,17 +91,21 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_history_venue ON dog_run_history(dog_name_norm, venue);
   `);
 
-  // Add gbgb_race_id to races if missing (non-destructive migration)
-  const raceCols = _db.prepare("PRAGMA table_info(races)").all().map(c => c.name);
-  if (!raceCols.includes('gbgb_race_id')) {
-    _db.exec(`ALTER TABLE races ADD COLUMN gbgb_race_id TEXT`);
-    _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_races_gbgb_id ON races(gbgb_race_id) WHERE gbgb_race_id IS NOT NULL`);
-    console.log('[DB] Migrated races table: added gbgb_race_id column');
+  // Add gbgb_race_id to races if missing (non-destructive migration — only if races table exists)
+  const raceTableExists = _db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='races'").get();
+  if (raceTableExists) {
+    const raceCols = _db.prepare("PRAGMA table_info(races)").all().map(c => c.name);
+    if (!raceCols.includes('gbgb_race_id')) {
+      _db.exec(`ALTER TABLE races ADD COLUMN gbgb_race_id TEXT`);
+      _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_races_gbgb_id ON races(gbgb_race_id) WHERE gbgb_race_id IS NOT NULL`);
+      console.log('[DB] Migrated races table: added gbgb_race_id column');
+    }
   }
 
   // Add 2nd/3rd place columns if they don't exist yet (non-destructive migration)
-  const cols = _db.prepare("PRAGMA table_info(results)").all().map(c => c.name);
-  if (!cols.includes('second_name')) {
+  const resultsTableExists = _db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='results'").get();
+  const cols = resultsTableExists ? _db.prepare("PRAGMA table_info(results)").all().map(c => c.name) : [];
+  if (resultsTableExists && !cols.includes('second_name')) {
     _db.exec(`ALTER TABLE results ADD COLUMN second_name      TEXT`);
     _db.exec(`ALTER TABLE results ADD COLUMN second_name_norm TEXT`);
     _db.exec(`ALTER TABLE results ADD COLUMN third_name       TEXT`);

@@ -151,11 +151,13 @@ async function fetchResultUrls(date) {
 /**
  * Parse all runners from a race result page.
  *
- * Timeform results HTML confirmed structure:
- *   - Each runner row: <tr class="rrb-runner-details rrb-runner-details-N"> (N = finishing position)
- *   - Trap:    <img class="rrb-trap" alt="N">
- *   - Dog:     <a class="rrb-greyhound [rrb-greyhound-N]">DOG NAME</a>
- *   - Run time: numeric value like "16.44" in a td within the row
+ * Timeform results HTML confirmed structure (verified Apr 2026):
+ *   Each runner has TWO rows:
+ *     rrb-runner-details-1: trap image + dog name link (all runners in finishing order)
+ *     rrb-runner-details-2: run time span + trainer name (all runners, same order)
+ *
+ *   The N in rrb-runner-details-N is the ROW TYPE (1=name row, 2=time row),
+ *   NOT the finishing position.
  *
  * @returns {Array<{ position, trap, dogName, runTime }>}
  */
@@ -163,54 +165,29 @@ function parseRaceRunners($) {
   const runners = [];
   const seen    = new Set();
 
-  // Primary: rows with rrb-runner-details-N class (N = finishing position)
-  // Note: each runner spans MULTIPLE rows all sharing the same rrb-runner-details-N class:
-  //   Row 1: trap image + dog name link
-  //   Row 2: run time span + trainer name
-  // We collect all rows per position and merge their data.
-  for (let pos = 1; pos <= 8; pos++) {
-    const rows = $(`.rrb-runner-details-${pos}`);
-    if (!rows.length) continue;
+  // Collect dog name rows and run time rows (appear in finishing position order)
+  const dogRows  = $('.rrb-runner-details-1').toArray();
+  const timeRows = $('.rrb-runner-details-2').toArray();
 
-    let trap = null, dogName = null, runTime = null;
+  for (let i = 0; i < dogRows.length; i++) {
+    const dogRow  = $(dogRows[i]);
+    const timeRow = timeRows[i] ? $(timeRows[i]) : null;
 
-    rows.each((_, el) => {
-      const row = $(el);
+    const trap    = parseInt(dogRow.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
+    const dogName = normalise(dogRow.find('a.rrb-greyhound').first().text());
 
-      const t = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
-      if (t) trap = t;
-
-      const d = normalise(row.find('a.rrb-greyhound').first().text());
-      if (d && d.length >= 2) dogName = d;
-
-      const rtText = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
-      if (rtText) runTime = parseFloat(rtText) || null;
-    });
-
-    if (!dogName || seen.has(dogName.toLowerCase())) continue;
+    if (!dogName || dogName.length < 2 || seen.has(dogName.toLowerCase())) continue;
     seen.add(dogName.toLowerCase());
-    runners.push({ position: pos, trap, dogName, runTime });
-  }
 
-  // Fallback: if we only found position-1 runners (or none), the rrb-runner-details-N
-  // selector is not giving us full data. Fall back to order-based position from rrb-greyhound links.
-  const positionsFound = new Set(runners.map(r => r.position));
-  if (positionsFound.size <= 1) {
-    runners.length = 0; // discard any partial position-1 only data
-    seen.clear();
-    let pos = 1;
-    $('a.rrb-greyhound').each((_, el) => {
-      const dogName = normalise($(el).text());
-      if (!dogName || dogName.length < 2 || seen.has(dogName.toLowerCase())) return;
-      seen.add(dogName.toLowerCase());
+    let runTime = null;
+    if (timeRow) {
+      timeRow.find('span[title="The official run time of the greyhound in this race"]').each((_, span) => {
+        const val = parseFloat($(span).text().trim());
+        if (!isNaN(val) && val > 10 && val < 100) runTime = val;
+      });
+    }
 
-      const row     = $(el).closest('tr');
-      const trap    = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
-      const rtText  = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
-      const runTime = rtText ? parseFloat(rtText) || null : null;
-
-      runners.push({ position: pos++, trap, dogName, runTime });
-    });
+    runners.push({ position: i + 1, trap, dogName, runTime });
   }
 
   return runners;
