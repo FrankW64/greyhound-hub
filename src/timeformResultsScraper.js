@@ -29,7 +29,7 @@ const HEADERS = {
   'Cache-Control':   'no-cache',
 };
 
-async function fetchHtml(url, retries = 3, delayMs = 3000) {
+async function fetchHtml(url, retries = 4, delayMs = 15000) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const { data } = await axios.get(url, {
@@ -41,8 +41,8 @@ async function fetchHtml(url, retries = 3, delayMs = 3000) {
     } catch (err) {
       const status = err.response?.status;
       if (attempt < retries && (status === 429 || status === 503 || status === 502)) {
-        const wait = delayMs * attempt; // 3s, 6s, 9s
-        console.warn(`[TFResults] ${status} on attempt ${attempt}, retrying in ${wait}ms…`);
+        const wait = delayMs * attempt; // 15s, 30s, 45s
+        console.warn(`[TFResults] ${status} on attempt ${attempt}, retrying in ${wait / 1000}s…`);
         await new Promise(r => setTimeout(r, wait));
       } else {
         throw err;
@@ -286,9 +286,9 @@ async function fetchTimeformResults(date) {
     const runners = await fetchRaceResult(raceLinks[i]);
     allRunners.push(...runners);
 
-    // Polite delay between every request
+    // Polite delay between every request — slow enough to avoid 429s
     if (i < raceLinks.length - 1) {
-      await new Promise(r => setTimeout(r, 3500));
+      await new Promise(r => setTimeout(r, 10000));
     }
   }
 
