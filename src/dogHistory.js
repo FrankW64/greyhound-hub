@@ -1,15 +1,16 @@
 'use strict';
 
 /**
- * dogHistory.js — store and query per-dog form from GBGB run history.
+ * dogHistory.js — store and query per-dog race history from Timeform.
  *
- * Important: the GBGB results API only returns winners (resultPosition = 1).
- * All queries are therefore based on winning runs only. Signals are designed
- * around what winners-only data can meaningfully tell us.
+ * Stores full finishing positions (1–6) for all runners scraped from
+ * Timeform results pages. Used by the algorithm to compute win rate,
+ * avg finishing position, grade quality, and venue wins.
  *
  * Public API:
- *   storeRunners(runners)           → void
- *   getWinStats(dogNameNorm, opts)  → win stats object
+ *   storeRunners(runners)          → void
+ *   getRunStats(dogNameNorm, opts) → full stats object
+ *   gradeScore(grade)              → numeric quality score
  */
 
 const { getDb } = require('./database');
@@ -84,77 +85,7 @@ function storeRunners(runners) {
   run();
 }
 
-// ── Win stats ─────────────────────────────────────────────────────────────────
-
-/**
- * Return all meaningful win-based stats for a dog.
- *
- * @param {string} dogNameNorm
- * @param {object} opts
- * @param {number} opts.days    Look-back window in days (default 30)
- * @param {string} opts.venue   Current race venue (for venue signal)
- * @param {number} opts.trap    Current trap number (for trap signal)
- *
- * @returns {{
- *   winCount:       number,   total wins in window (0 = no history)
- *   daysSinceWin:   number|null,  days since most recent win (null = never)
- *   avgGradeScore:  number,   mean grade quality of wins (0–10)
- *   venueWins:      number,   wins at this specific venue
- *   trapWins:       number,   wins from this specific trap
- *   hasHistory:     boolean,
- * }}
- */
-function getWinStats(dogNameNorm, { days = 30, venue = null, trap = null } = {}) {
-  const db    = getDb();
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().split('T')[0];
-
-  const wins = db.prepare(`
-    SELECT race_date, venue, trap, grade
-    FROM   dog_run_history
-    WHERE  dog_name_norm = ?
-      AND  race_date >= ?
-      AND  position = 1
-    ORDER  BY race_date DESC
-  `).all(dogNameNorm, sinceStr);
-
-  if (!wins.length) {
-    return { winCount: 0, daysSinceWin: null, avgGradeScore: 0, venueWins: 0, trapWins: 0, hasHistory: false };
-  }
-
-  // Days since most recent win
-  const latest      = new Date(wins[0].race_date);
-  const today       = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysSinceWin = Math.floor((today - latest) / 86400000);
-
-  // Average grade quality score
-  const gradedWins   = wins.filter(w => w.grade);
-  const avgGradeScore = gradedWins.length
-    ? gradedWins.reduce((s, w) => s + gradeScore(w.grade), 0) / gradedWins.length
-    : 0;
-
-  // Venue and trap wins
-  const venueNorm = (venue || '').toLowerCase().trim();
-  const venueWins = venue
-    ? wins.filter(w => (w.venue || '').toLowerCase().trim() === venueNorm).length
-    : 0;
-  const trapWins  = trap
-    ? wins.filter(w => w.trap === trap).length
-    : 0;
-
-  return {
-    winCount:      wins.length,
-    daysSinceWin,
-    avgGradeScore,
-    venueWins,
-    trapWins,
-    hasHistory:    true,
-  };
-}
-
-// ── Full run stats (requires Timeform data with all positions) ────────────────
+// ── Full run stats ────────────────────────────────────────────────────────────
 
 /**
  * Return comprehensive stats for a dog using all finishing positions.
@@ -245,4 +176,4 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
   };
 }
 
-module.exports = { storeRunners, getWinStats, getRunStats, gradeScore };
+module.exports = { storeRunners, getRunStats, gradeScore };
