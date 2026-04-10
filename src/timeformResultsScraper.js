@@ -164,23 +164,32 @@ function parseRaceRunners($) {
   const seen    = new Set();
 
   // Primary: rows with rrb-runner-details-N class (N = finishing position)
+  // Note: each runner spans MULTIPLE rows all sharing the same rrb-runner-details-N class:
+  //   Row 1: trap image + dog name link
+  //   Row 2: run time span + trainer name
+  // We collect all rows per position and merge their data.
   for (let pos = 1; pos <= 8; pos++) {
-    $(`.rrb-runner-details-${pos}`).each((_, el) => {
+    const rows = $(`.rrb-runner-details-${pos}`);
+    if (!rows.length) continue;
+
+    let trap = null, dogName = null, runTime = null;
+
+    rows.each((_, el) => {
       const row = $(el);
 
-      const trap = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
+      const t = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
+      if (t) trap = t;
 
-      const dogName = normalise(row.find('a.rrb-greyhound').first().text());
-      if (!dogName || dogName.length < 2) return;
-      if (seen.has(dogName.toLowerCase())) return;
-      seen.add(dogName.toLowerCase());
+      const d = normalise(row.find('a.rrb-greyhound').first().text());
+      if (d && d.length >= 2) dogName = d;
 
-      // Run time: confirmed selector — span with title containing "run time"
-      const runTimeText = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
-      const runTime = runTimeText ? parseFloat(runTimeText) || null : null;
-
-      runners.push({ position: pos, trap, dogName, runTime });
+      const rtText = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
+      if (rtText) runTime = parseFloat(rtText) || null;
     });
+
+    if (!dogName || seen.has(dogName.toLowerCase())) continue;
+    seen.add(dogName.toLowerCase());
+    runners.push({ position: pos, trap, dogName, runTime });
   }
 
   // Fallback: if we only found position-1 runners (or none), the rrb-runner-details-N
