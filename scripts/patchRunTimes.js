@@ -64,6 +64,18 @@ async function fetchRunTimes(date, venue, time) {
   try {
     const $list = await getListingPage(date);
 
+    // Debug: show all result links found on listing page
+    const allLinks = [];
+    $list('a[href*="/greyhound-racing/results/"]').each((_, el) => {
+      allLinks.push($list(el).attr('href'));
+    });
+    if (allLinks.length === 0) {
+      console.log(`  [debug] No result links found on listing page for ${date}`);
+    } else {
+      console.log(`  [debug] Looking for: /greyhound-racing/results/${venueSlug}/${timePart}`);
+      console.log(`  [debug] Sample links: ${allLinks.slice(0, 3).join(', ')}`);
+    }
+
     // Find matching race URL
     let raceUrl = null;
     $list(`a[href*="/greyhound-racing/results/${venueSlug}/${timePart}"]`).each((_, el) => {
