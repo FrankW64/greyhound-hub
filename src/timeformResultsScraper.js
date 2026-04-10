@@ -175,14 +175,9 @@ function parseRaceRunners($) {
       if (seen.has(dogName.toLowerCase())) return;
       seen.add(dogName.toLowerCase());
 
-      // Run time: look for a decimal number like 16.44 in the row's text cells
-      // Avoid matching trap number (single digit) or position (single/double digit w/o decimal)
-      let runTime = null;
-      row.find('td').each((_, td) => {
-        const text = $(td).text().trim();
-        const m    = text.match(/^(\d{2,3}\.\d{2})$/);
-        if (m) { runTime = parseFloat(m[1]); return false; } // break
-      });
+      // Run time: confirmed selector — span with title containing "run time"
+      const runTimeText = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
+      const runTime = runTimeText ? parseFloat(runTimeText) || null : null;
 
       runners.push({ position: pos, trap, dogName, runTime });
     });
@@ -200,15 +195,10 @@ function parseRaceRunners($) {
       if (!dogName || dogName.length < 2 || seen.has(dogName.toLowerCase())) return;
       seen.add(dogName.toLowerCase());
 
-      const row  = $(el).closest('tr');
-      const trap = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
-
-      let runTime = null;
-      row.find('td').each((_, td) => {
-        const text = $(td).text().trim();
-        const m    = text.match(/^(\d{2,3}\.\d{2})$/);
-        if (m) { runTime = parseFloat(m[1]); return false; }
-      });
+      const row     = $(el).closest('tr');
+      const trap    = parseInt(row.find('img.rrb-trap').first().attr('alt') || '0', 10) || null;
+      const rtText  = row.find('span[title*="run time"], span[title*="Run time"]').first().text().trim();
+      const runTime = rtText ? parseFloat(rtText) || null : null;
 
       runners.push({ position: pos++, trap, dogName, runTime });
     });
