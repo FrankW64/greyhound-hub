@@ -253,7 +253,7 @@ async function fetchRaceResult({ url, venue, time, date, raceId }) {
  * @param {string} date  YYYY-MM-DD
  * @returns {Promise<Array>}  allRunners in dog_run_history format
  */
-async function fetchTimeformResults(date) {
+async function fetchTimeformResults(date, { limit = null } = {}) {
   let raceLinks;
   try {
     raceLinks = await fetchResultUrls(date);
@@ -267,17 +267,18 @@ async function fetchTimeformResults(date) {
     return [];
   }
 
-  console.log(`[TFResults] ${raceLinks.length} races to fetch for ${date}`);
+  const racesToFetch = limit ? raceLinks.slice(0, limit) : raceLinks;
+  console.log(`[TFResults] ${racesToFetch.length} races to fetch for ${date}${limit ? ` (limited from ${raceLinks.length})` : ''}`);
 
   const allRunners = [];
 
   // Sequential fetching with generous delay — Timeform rate-limits aggressive scrapers
-  for (let i = 0; i < raceLinks.length; i++) {
-    const runners = await fetchRaceResult(raceLinks[i]);
+  for (let i = 0; i < racesToFetch.length; i++) {
+    const runners = await fetchRaceResult(racesToFetch[i]);
     allRunners.push(...runners);
 
     // Polite delay between every request — slow enough to avoid 429s
-    if (i < raceLinks.length - 1) {
+    if (i < racesToFetch.length - 1) {
       await new Promise(r => setTimeout(r, 10000));
     }
   }

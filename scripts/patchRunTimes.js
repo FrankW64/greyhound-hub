@@ -14,6 +14,9 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const { fetchTimeformResults } = require('../src/timeformResultsScraper');
+
+const limitIdx = process.argv.indexOf('--limit');
+const RACE_LIMIT = limitIdx >= 0 ? parseInt(process.argv[limitIdx + 1], 10) : null;
 const { getDb }                = require('../src/database');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -69,7 +72,7 @@ async function main() {
     process.stdout.write(`[${i + 1}/${dates.length}] ${date} … `);
 
     try {
-      const runners = await fetchTimeformResults(date);
+      const runners = await fetchTimeformResults(date, { limit: RACE_LIMIT });
 
       // Only process runners that have a run_time
       const withTime = runners.filter(r => r.runTime);
