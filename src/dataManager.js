@@ -142,8 +142,8 @@ class DataManager {
         console.log(`[DataManager] ${verdictTips.length} Timeform verdict tips extracted`);
       }
 
-      // Algorithm tips — generated from historical form data
-      const algoTips = this.useMockData ? [] : generateAlgorithmTips(races);
+      // Algorithm tips — disabled until backtest complete
+      const algoTips = [];
 
       const allTips = [...verdictTips, ...tips, ...algoTips];
       this._lastKnownTips = allTips;

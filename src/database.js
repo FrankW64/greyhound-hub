@@ -109,6 +109,26 @@ function getDb() {
     console.log('[DB] Migrated results table: added 2nd/3rd place columns');
   }
 
+  // ── Betfair odds table ───────────────────────────────────────────────────────
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS betfair_odds (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      race_date     TEXT    NOT NULL,
+      venue         TEXT    NOT NULL,
+      race_time     TEXT    NOT NULL,
+      dog_name      TEXT    NOT NULL,
+      dog_name_norm TEXT    NOT NULL,
+      bsp           REAL,
+      win_flag      INTEGER,
+      market_id     TEXT,
+      created_at    TEXT    DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(race_date, venue, race_time, dog_name_norm)
+    );
+    CREATE INDEX IF NOT EXISTS idx_betfair_date  ON betfair_odds(race_date);
+    CREATE INDEX IF NOT EXISTS idx_betfair_dog   ON betfair_odds(dog_name_norm);
+    CREATE INDEX IF NOT EXISTS idx_betfair_venue ON betfair_odds(race_date, venue);
+  `);
+
   // ── Pipeline tables ─────────────────────────────────────────────────────────
   _db.exec(`
     CREATE TABLE IF NOT EXISTS meetings (
