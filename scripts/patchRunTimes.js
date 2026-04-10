@@ -27,13 +27,14 @@ function norm(name) {
 
 async function main() {
   const db   = getDb();
-  const args = process.argv.slice(2);
+  // Strip --limit flag from positional args
+  const args = process.argv.slice(2).filter(a => a !== '--limit' && a !== String(RACE_LIMIT));
 
   // Get dates that have null run_time, skip today
   const today = new Date().toISOString().split('T')[0];
 
   let dates;
-  if (args.length === 2) {
+  if (args.length === 2 && args[0].match(/^\d{4}-\d{2}-\d{2}$/)) {
     // Date range provided
     const cursor = new Date(args[0]);
     const end    = new Date(args[1]);
