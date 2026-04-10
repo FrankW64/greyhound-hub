@@ -101,6 +101,78 @@ function getDb() {
     console.log('[DB] Migrated results table: added 2nd/3rd place columns');
   }
 
+  // ── Pipeline tables ─────────────────────────────────────────────────────────
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS meetings (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id TEXT UNIQUE,
+      date       TEXT,
+      venue      TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS races (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id   TEXT,
+      race_number  INTEGER,
+      distance     INTEGER,
+      grade        TEXT,
+      race_time    TEXT,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (meeting_id) REFERENCES meetings(meeting_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS runners (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      race_id             INTEGER,
+      trap_number         INTEGER,
+      dog_name            TEXT,
+      trainer             TEXT,
+      finish_position     INTEGER,
+      race_time_seconds   REAL,
+      sp                  TEXT,
+      bsp                 REAL,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (race_id) REFERENCES races(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS trap_stats (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      venue          TEXT,
+      trap_number    INTEGER,
+      distance       INTEGER,
+      wins           INTEGER,
+      total_runs     INTEGER,
+      win_percentage REAL,
+      last_updated   TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(venue, trap_number, distance)
+    );
+
+    CREATE TABLE IF NOT EXISTS trainer_stats (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      trainer_name   TEXT UNIQUE,
+      total_runs     INTEGER,
+      total_wins     INTEGER,
+      win_percentage REAL,
+      last_updated   TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS pipeline_log (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      source          TEXT,
+      status          TEXT,
+      records_fetched INTEGER,
+      error_message   TEXT,
+      ran_at          TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runners_dog     ON runners(dog_name);
+    CREATE INDEX IF NOT EXISTS idx_runners_trainer ON runners(trainer);
+    CREATE INDEX IF NOT EXISTS idx_runners_trap    ON runners(trap_number);
+    CREATE INDEX IF NOT EXISTS idx_races_grade     ON races(grade);
+    CREATE INDEX IF NOT EXISTS idx_meetings_date   ON meetings(date);
+  `);
+
   // Migrate existing accuracy.json data on first run
   migrateJson(_db);
 
