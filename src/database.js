@@ -91,6 +91,14 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_history_venue ON dog_run_history(dog_name_norm, venue);
   `);
 
+  // Add gbgb_race_id to races if missing (non-destructive migration)
+  const raceCols = _db.prepare("PRAGMA table_info(races)").all().map(c => c.name);
+  if (!raceCols.includes('gbgb_race_id')) {
+    _db.exec(`ALTER TABLE races ADD COLUMN gbgb_race_id TEXT`);
+    _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_races_gbgb_id ON races(gbgb_race_id) WHERE gbgb_race_id IS NOT NULL`);
+    console.log('[DB] Migrated races table: added gbgb_race_id column');
+  }
+
   // Add 2nd/3rd place columns if they don't exist yet (non-destructive migration)
   const cols = _db.prepare("PRAGMA table_info(results)").all().map(c => c.name);
   if (!cols.includes('second_name')) {
@@ -112,13 +120,14 @@ function getDb() {
     );
 
     CREATE TABLE IF NOT EXISTS races (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      meeting_id   TEXT,
-      race_number  INTEGER,
-      distance     INTEGER,
-      grade        TEXT,
-      race_time    TEXT,
-      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id    TEXT,
+      gbgb_race_id  TEXT UNIQUE,
+      race_number   INTEGER,
+      distance      INTEGER,
+      grade         TEXT,
+      race_time     TEXT,
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (meeting_id) REFERENCES meetings(meeting_id)
     );
 

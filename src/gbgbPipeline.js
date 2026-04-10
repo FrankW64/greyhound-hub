@@ -135,16 +135,15 @@ async function fetchGBGBDate(date) {
         const grade    = first.raceClass    || null;
         const raceTime = parseGbgbTime(first.raceTime || '');
 
-        // Check if this race already stored (avoid duplicates on re-run)
-        const existing = db.prepare(`
-          SELECT id FROM races WHERE meeting_id = ? AND race_time = ?
-        `).get(meetingId, raceTime);
-        if (existing) { raceNumber++; continue; }
+        const gbgbRaceId = raceRows[0].raceId ? String(raceRows[0].raceId) : null;
 
-        const { lastInsertRowid: dbRaceId } = db.prepare(`
-          INSERT INTO races (meeting_id, race_number, distance, grade, race_time)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(meetingId, raceNumber++, distance, grade, raceTime);
+        // INSERT OR IGNORE deduplicates on gbgb_race_id UNIQUE constraint
+        const { lastInsertRowid: dbRaceId, changes } = db.prepare(`
+          INSERT OR IGNORE INTO races (meeting_id, gbgb_race_id, race_number, distance, grade, race_time)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(meetingId, gbgbRaceId, raceNumber++, distance, grade, raceTime);
+
+        if (!changes) continue; // race already stored
 
         for (const row of raceRows) {
           const trap    = parseInt(row.trapNumber    || '0', 10) || null;
