@@ -46,15 +46,23 @@ const VENUE_TO_SLUG = Object.fromEntries(
   Object.entries(SLUG_TO_VENUE).map(([slug, venue]) => [venue.toLowerCase(), slug])
 );
 
+const listingCache = new Map(); // date → cheerio object
+
+async function getListingPage(date) {
+  if (listingCache.has(date)) return listingCache.get(date);
+  const { data } = await axios.get(`${BASE}/greyhound-racing/results/${date}`, { headers: HEADERS, timeout: 20000 });
+  const $ = cheerio.load(data);
+  listingCache.set(date, $);
+  await sleep(3000); // polite delay after fetching listing
+  return $;
+}
+
 async function fetchRunTimes(date, venue, time) {
-  // Build listing URL and find the race URL
   const venueSlug = VENUE_TO_SLUG[venue.toLowerCase()] || venue.toLowerCase().replace(/\s+/g, '-');
   const timePart  = time.replace(':', '');
-  const listUrl   = `${BASE}/greyhound-racing/results/${date}`;
 
   try {
-    const { data: listHtml } = await axios.get(listUrl, { headers: HEADERS, timeout: 20000 });
-    const $list = cheerio.load(listHtml);
+    const $list = await getListingPage(date);
 
     // Find matching race URL
     let raceUrl = null;
@@ -89,14 +97,16 @@ async function fetchRunTimes(date, venue, time) {
 async function main() {
   const db = getDb();
 
-  // Find all unique races with null run_time
+  // Find all unique races with null run_time — oldest first, skip today
+  const today = new Date().toISOString().split('T')[0];
   const races = db.prepare(`
     SELECT DISTINCT race_date, venue, race_time
     FROM   dog_run_history
     WHERE  run_time IS NULL
-    ORDER  BY race_date DESC
+      AND  race_date < ?
+    ORDER  BY race_date ASC
     ${LIMIT ? `LIMIT ${LIMIT}` : ''}
-  `).all();
+  `).all(today);
 
   console.log(`\n🕐 Patching run times for ${races.length} races…\n`);
 
