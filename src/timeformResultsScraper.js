@@ -181,7 +181,7 @@ function parseRaceRunners($) {
 
     let runTime = null;
     if (timeRow) {
-      timeRow.find('span[title="The official run time of the greyhound in this race"]').each((_, span) => {
+      timeRow.find('span[title^="The official run time of the greyhound in this race"]').each((_, span) => {
         const val = parseFloat($(span).text().trim());
         if (!isNaN(val) && val > 10 && val < 100) runTime = val;
       });
