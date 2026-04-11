@@ -100,7 +100,7 @@ function extractDistance(text) {
 }
 
 function extractGrade(text) {
-  const m = (text || '').match(/\b([ASOHaosh]\d{1,2}|OR|OPEN|OA|S|H)\b/);
+  const m = (text || '').match(/\b([A-Fa-f]\d{1,2}|OR|OPEN|OA|[SH])\b/);
   return m ? m[1].toUpperCase() : null;
 }
 
