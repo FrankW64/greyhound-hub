@@ -58,10 +58,12 @@ function storeRunners(runners) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO dog_run_history
       (race_date, venue, race_time, grade, distance,
-       dog_name, dog_name_norm, trap, position, run_time, created_at)
+       dog_name, dog_name_norm, trap, position, run_time,
+       beaten, run_comment, created_at)
     VALUES
       (@race_date, @venue, @race_time, @grade, @distance,
-       @dog_name, @dog_name_norm, @trap, @position, @run_time, @created_at)
+       @dog_name, @dog_name_norm, @trap, @position, @run_time,
+       @beaten, @run_comment, @created_at)
   `);
 
   const run = db.transaction(() => {
@@ -70,13 +72,15 @@ function storeRunners(runners) {
         race_date:     r.raceDate,
         venue:         r.venue,
         race_time:     r.raceTime,
-        grade:         r.grade    || null,
-        distance:      r.distance || null,
+        grade:         r.grade      || null,
+        distance:      r.distance   || null,
         dog_name:      r.dogName,
         dog_name_norm: norm(r.dogName),
-        trap:          r.trap     || null,
+        trap:          r.trap       || null,
         position:      r.position,
-        run_time:      r.runTime  || null,
+        run_time:      r.runTime    || null,
+        beaten:        r.beaten     || null,
+        run_comment:   r.runComment || null,
         created_at:    now,
       });
     }
