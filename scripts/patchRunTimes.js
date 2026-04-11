@@ -48,7 +48,7 @@ async function main() {
     dates = db.prepare(`
       SELECT DISTINCT race_date
       FROM   dog_run_history
-      WHERE  run_time IS NULL
+      WHERE  (run_time IS NULL OR beaten IS NULL OR run_comment IS NULL)
         AND  race_date < ?
       ORDER  BY race_date ASC
     `).all(today).map(r => r.race_date);
@@ -58,12 +58,13 @@ async function main() {
 
   const update = db.prepare(`
     UPDATE dog_run_history
-    SET    run_time = ?
+    SET    run_time    = ?,
+           beaten      = ?,
+           run_comment = ?
     WHERE  race_date     = ?
       AND  venue         = ?
       AND  race_time     = ?
       AND  dog_name_norm = ?
-      AND  run_time IS NULL
   `);
 
   let totalUpdated = 0;
@@ -75,17 +76,16 @@ async function main() {
     try {
       const runners = await fetchTimeformResults(date, { limit: RACE_LIMIT });
 
-      // Only process runners that have a run_time
-      const withTime = runners.filter(r => r.runTime);
-
-      if (!withTime.length) {
-        console.log('no run times returned');
+      if (!runners.length) {
+        console.log('no runners returned');
       } else {
         const runUpdate = db.transaction(() => {
           let count = 0;
-          for (const r of withTime) {
+          for (const r of runners) {
             const result = update.run(
-              r.runTime,
+              r.runTime   ?? null,
+              r.beaten    ?? null,
+              r.runComment ?? null,
               r.raceDate,
               r.venue,
               r.raceTime,
@@ -96,9 +96,10 @@ async function main() {
           return count;
         });
 
-        const updated = runUpdate();
-        totalUpdated += updated;
-        console.log(`${updated} run times updated (${withTime.length} with time from ${runners.length} runners)`);
+        const withTime = runners.filter(r => r.runTime).length;
+        const updated  = runUpdate();
+        totalUpdated  += updated;
+        console.log(`${updated} rows updated (${withTime} with run_time from ${runners.length} runners)`);
       }
     } catch (err) {
       console.log(`ERROR: ${err.message}`);

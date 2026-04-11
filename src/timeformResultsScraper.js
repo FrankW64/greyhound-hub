@@ -159,7 +159,7 @@ async function fetchResultUrls(date) {
  *   The N in rrb-runner-details-N is the ROW TYPE (1=name row, 2=time row),
  *   NOT the finishing position.
  *
- * @returns {Array<{ position, trap, dogName, runTime }>}
+ * @returns {Array<{ position, trap, dogName, runTime, beaten, runComment }>}
  */
 function parseRaceRunners($) {
   const runners = [];
@@ -179,6 +179,13 @@ function parseRaceRunners($) {
     if (!dogName || dogName.length < 2 || seen.has(dogName.toLowerCase())) continue;
     seen.add(dogName.toLowerCase());
 
+    // Beaten distance — td with exact title (winner shows "-", others show "1¼", "hd", "nk" etc.)
+    const beatenRaw = dogRow.find('td[title="Number of lengths behind the greyhound that finished in front"]').first().text().trim();
+    const beaten    = beatenRaw && beatenRaw !== '-' ? beatenRaw : null;
+
+    // Run comment — e.g. "Mid,QAw,LdTo 1/2", "Rls,EvCh"
+    const runComment = dogRow.find('td[title="The official run comment of the greyhound in this race"]').first().text().trim() || null;
+
     let runTime = null;
     if (timeRow) {
       timeRow.find('span[title^="The official run time of the greyhound in this race"]').each((_, span) => {
@@ -187,7 +194,7 @@ function parseRaceRunners($) {
       });
     }
 
-    runners.push({ position: i + 1, trap, dogName, runTime });
+    runners.push({ position: i + 1, trap, dogName, runTime, beaten, runComment });
   }
 
   return runners;
@@ -215,15 +222,17 @@ async function fetchRaceResult({ url, venue, time, date, raceId }) {
     }
 
     return rawRunners.map(r => ({
-      raceDate:  date,
+      raceDate:   date,
       venue,
-      raceTime:  time,
-      grade:     grade || null,
-      distance:  distance || null,
-      dogName:   r.dogName,
-      trap:      r.trap,
-      position:  r.position,
-      runTime:   r.runTime,
+      raceTime:   time,
+      grade:      grade || null,
+      distance:   distance || null,
+      dogName:    r.dogName,
+      trap:       r.trap,
+      position:   r.position,
+      runTime:    r.runTime,
+      beaten:     r.beaten,
+      runComment: r.runComment,
     }));
   } catch (err) {
     console.warn(`[TFResults] Race ${raceId} (${venue} ${time}) failed: ${err.message}`);

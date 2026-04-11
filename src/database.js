@@ -91,6 +91,17 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_history_venue ON dog_run_history(dog_name_norm, venue);
   `);
 
+  // Add beaten and run_comment columns if missing (non-destructive migration)
+  const historyCols = _db.prepare("PRAGMA table_info(dog_run_history)").all().map(c => c.name);
+  if (!historyCols.includes('beaten')) {
+    _db.exec(`ALTER TABLE dog_run_history ADD COLUMN beaten TEXT`);
+    console.log('[DB] Migrated dog_run_history: added beaten column');
+  }
+  if (!historyCols.includes('run_comment')) {
+    _db.exec(`ALTER TABLE dog_run_history ADD COLUMN run_comment TEXT`);
+    console.log('[DB] Migrated dog_run_history: added run_comment column');
+  }
+
   // Add gbgb_race_id to races if missing (non-destructive migration — only if races table exists)
   const raceTableExists = _db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='races'").get();
   if (raceTableExists) {
