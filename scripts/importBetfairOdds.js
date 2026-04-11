@@ -34,7 +34,9 @@ if (!tarFile) {
 }
 
 function norm(name) {
-  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Strip Betfair trap prefix e.g. "6. CROKERS LUNA" → "CROKERS LUNA"
+  const stripped = (name || '').replace(/^\d+\.\s*/, '');
+  return stripped.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 // ── Decompress a single bz2 file from the tar archive ─────────────────────────
