@@ -48,7 +48,7 @@ async function main() {
     dates = db.prepare(`
       SELECT DISTINCT race_date
       FROM   dog_run_history
-      WHERE  (run_time IS NULL OR beaten IS NULL OR run_comment IS NULL)
+      WHERE  (run_time IS NULL OR beaten IS NULL OR run_comment IS NULL OR grade IS NULL)
         AND  race_date < ?
       ORDER  BY race_date ASC
     `).all(today).map(r => r.race_date);
@@ -60,7 +60,8 @@ async function main() {
     UPDATE dog_run_history
     SET    run_time    = ?,
            beaten      = ?,
-           run_comment = ?
+           run_comment = ?,
+           grade       = COALESCE(grade, ?)
     WHERE  race_date     = ?
       AND  venue         = ?
       AND  race_time     = ?
@@ -83,9 +84,10 @@ async function main() {
           let count = 0;
           for (const r of runners) {
             const result = update.run(
-              r.runTime   ?? null,
-              r.beaten    ?? null,
+              r.runTime    ?? null,
+              r.beaten     ?? null,
               r.runComment ?? null,
+              r.grade      ?? null,
               r.raceDate,
               r.venue,
               r.raceTime,
