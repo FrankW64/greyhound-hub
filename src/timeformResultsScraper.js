@@ -180,7 +180,7 @@ function parseRaceRunners($) {
     seen.add(dogName.toLowerCase());
 
     // Beaten distance — td with exact title (winner shows "-", others show "1¼", "hd", "nk" etc.)
-    const beatenRaw = dogRow.find('td[title="Number of lengths behind the greyhound that finished in front"]').first().text().trim();
+    const beatenRaw = dogRow.find('td[title="Number of lengths behind the greyhound that finished in front of it"]').first().text().trim();
     const beaten    = beatenRaw && beatenRaw !== '-' ? beatenRaw : null;
 
     // Run comment — e.g. "Mid,QAw,LdTo 1/2", "Rls,EvCh"
