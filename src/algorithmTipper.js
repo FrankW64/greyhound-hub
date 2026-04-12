@@ -9,14 +9,16 @@
  *
  *  Signal              Weight  Description
  *  ──────────────────  ──────  ────────────────────────────────────────────────
- *  Win rate            20%     Wins / total runs in last 30 days
- *  Avg position        15%     Mean finishing position (excl. interfered runs)
- *  Closeness           15%     Avg lengths beaten by (lower = closer to winning)
- *  Speed rating        15%     Avg distance/run_time index (higher = faster)
- *  Grade quality       12%     Avg grade of races entered (A1 beats A6)
+ *  Win rate            18%     Wins / total runs in last 30 days
+ *  Avg position        13%     Mean finishing position (excl. interfered runs)
+ *  Closeness           13%     Avg lengths beaten by (lower = closer to winning)
+ *  Speed rating        13%     Avg distance/run_time index (higher = faster)
+ *  Grade quality        8%     Avg grade of races entered (A1 beats A6)
  *  Trap bias           10%     Historical win % for this trap at this venue
- *  Start ability        8%     Avg starting speed from run comments (QAw/SAw)
- *  Venue wins           5%     Number of wins at this specific track
+ *  Start ability        5%     Avg starting speed from run comments (QAw/SAw)
+ *  Venue wins           4%     Number of wins at this specific track
+ *  Distance suitability 8%     Win rate specifically at today's race distance
+ *  Form trajectory      8%     Improving vs declining — recent vs older beaten lengths
  *
  * All signals normalised within the race.
  * Tip only generated if top dog beats second by more than MIN_CONFIDENCE_GAP.
@@ -48,14 +50,16 @@ const TRAP_BIAS = {
 };
 
 const WEIGHTS = {
-  winRate:    0.20,
-  avgPos:     0.15,
-  closeness:  0.15,
-  speed:      0.15,
-  grade:      0.12,
-  trapBias:   0.10,
-  startAbility: 0.08,
-  venueWins:  0.05,
+  winRate:      0.18,
+  avgPos:       0.13,
+  closeness:    0.13,
+  speed:        0.13,
+  grade:        0.08,
+  trapBias:     0.10,
+  startAbility: 0.05,
+  venueWins:    0.04,
+  distanceSuit: 0.08,
+  formTraj:     0.08,
 };
 
 const MIN_CONFIDENCE_GAP = 0.04;
@@ -85,7 +89,7 @@ function scoreRace(race, { asOf = null } = {}) {
   const runnerStats = race.runners.map(runner => {
     const dogNorm = norm(runner.name);
     const trap    = runner.trap || null;
-    const stats   = getRunStats(dogNorm, { days: 30, venue: race.venue, asOf });
+    const stats   = getRunStats(dogNorm, { days: 30, venue: race.venue, asOf, distance: race.distance || null });
     return { runner, trap, stats };
   });
 
@@ -122,18 +126,30 @@ function scoreRace(race, { asOf = null } = {}) {
   const normGrade     = normaliseValues(runnerStats.map(r => r.stats.avgGradeScore));
   const normVenueWins = normaliseValues(runnerStats.map(r => r.stats.venueWins));
 
+  // Distance suitability — win rate at today's distance (fall back to overall win rate if no data)
+  const normDistSuit = normAmongFull(s => {
+    if (s.distanceRunCount >= 2) return s.distanceWinRate;  // enough distance data
+    if (s.distanceRunCount === 1) return (s.distanceWinRate + s.winRate) / 2; // blend with overall
+    return s.winRate; // no distance data — use overall win rate (neutral)
+  });
+
+  // Form trajectory — improving vs declining (null if fewer than 6 runs)
+  const normFormTraj = normAmongFull(s => s.formTrajectory ?? 0);
+
   return runnerStats.map((rs, i) => {
     const { runner, trap, stats } = rs;
     const h = stats.hasFullHistory;
 
-    const s_winRate      = h ? normWinRate[i]   : 0.5;
-    const s_avgPos       = h ? normAvgPos[i]     : 0.5;
-    const s_closeness    = h ? normCloseness[i]  : 0.5;
-    const s_speed        = h ? normSpeed[i]      : 0.5;
-    const s_grade        = h ? normGrade[i]      : 0.5;
+    const s_winRate      = h ? normWinRate[i]    : 0.5;
+    const s_avgPos       = h ? normAvgPos[i]      : 0.5;
+    const s_closeness    = h ? normCloseness[i]   : 0.5;
+    const s_speed        = h ? normSpeed[i]       : 0.5;
+    const s_grade        = h ? normGrade[i]       : 0.5;
     const s_trap         = trapBiasScore(race.venue, trap);
-    const s_startAbility = h ? normStart[i]      : 0.5;
-    const s_venue        = h ? normVenueWins[i]  : 0.5;
+    const s_startAbility = h ? normStart[i]       : 0.5;
+    const s_venue        = h ? normVenueWins[i]   : 0.5;
+    const s_distanceSuit = h ? normDistSuit[i]    : 0.5;
+    const s_formTraj     = h ? normFormTraj[i]    : 0.5;
 
     const score =
       s_winRate      * WEIGHTS.winRate      +
@@ -143,11 +159,16 @@ function scoreRace(race, { asOf = null } = {}) {
       s_grade        * WEIGHTS.grade        +
       s_trap         * WEIGHTS.trapBias     +
       s_startAbility * WEIGHTS.startAbility +
-      s_venue        * WEIGHTS.venueWins;
+      s_venue        * WEIGHTS.venueWins    +
+      s_distanceSuit * WEIGHTS.distanceSuit +
+      s_formTraj     * WEIGHTS.formTraj;
 
     return {
       runner, score, hasHistory: h,
-      signals: { s_winRate, s_avgPos, s_closeness, s_speed, s_grade, s_trap, s_startAbility, s_venue },
+      signals: {
+        s_winRate, s_avgPos, s_closeness, s_speed, s_grade,
+        s_trap, s_startAbility, s_venue, s_distanceSuit, s_formTraj,
+      },
     };
   }).sort((a, b) => b.score - a.score);
 }

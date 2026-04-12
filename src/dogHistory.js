@@ -165,7 +165,7 @@ function hasInterference(comment) {
  *   hasHistory:       boolean,
  * }}
  */
-function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf = null } = {}) {
+function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf = null, distance = null } = {}) {
   const db    = getDb();
   const base  = asOf ? new Date(asOf) : new Date();
   const since = new Date(base);
@@ -188,6 +188,8 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf =
       runCount: 0, winCount: 0, winRate: 0, avgPosition: null,
       daysSinceRun: null, avgGradeScore: 0, venueWins: 0,
       avgSpeedIndex: null, avgBeatenLengths: null, avgStartScore: 0.5,
+      distanceWinRate: null, distanceRunCount: 0,
+      formTrajectory: null,
       hasFullHistory: false, hasHistory: false,
     };
   }
@@ -240,6 +242,34 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf =
   const startScores  = runs.map(r => startScore(r.run_comment));
   const avgStartScore = startScores.reduce((s, v) => s + v, 0) / startScores.length;
 
+  // Distance suitability — win rate specifically at today's race distance
+  let distanceWinRate  = null;
+  let distanceRunCount = 0;
+  if (distance) {
+    const distRuns     = runs.filter(r => r.distance === distance);
+    distanceRunCount   = distRuns.length;
+    if (distanceRunCount > 0) {
+      distanceWinRate  = distRuns.filter(r => r.position === 1).length / distanceRunCount;
+    }
+  }
+
+  // Form trajectory — compare avg beaten lengths in last 5 runs vs previous 5 runs
+  // Positive value = improving (less beaten recently), negative = declining
+  let formTrajectory = null;
+  if (runs.length >= 6) {
+    const beatenAvg = (runSet) => {
+      const vals = runSet.map(r => {
+        if (r.position === 1) return 0;
+        const b = beatToLengths(r.beaten);
+        return b !== null ? b : 5; // default 5 lengths if unknown
+      });
+      return vals.reduce((s, v) => s + v, 0) / vals.length;
+    };
+    const recentBeaten = beatenAvg(runs.slice(0, 5));  // most recent 5
+    const olderBeaten  = beatenAvg(runs.slice(5, 10)); // previous 5
+    formTrajectory = olderBeaten - recentBeaten; // positive = beating less recently = improving
+  }
+
   // Full history = any non-winner row present (Timeform data)
   const hasFullHistory = runs.some(r => r.position > 1);
 
@@ -254,6 +284,9 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf =
     avgSpeedIndex,
     avgBeatenLengths,
     avgStartScore,
+    distanceWinRate,
+    distanceRunCount,
+    formTrajectory,
     hasFullHistory,
     hasHistory: true,
   };
