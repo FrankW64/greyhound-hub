@@ -30,6 +30,8 @@ const { storeRunners }         = require('../src/dogHistory');
 const { getDb }                = require('../src/database');
 
 const useGbgbFallback = process.argv.includes('--gbgb');
+const limitIdx        = process.argv.indexOf('--limit');
+const RACE_LIMIT      = limitIdx >= 0 ? parseInt(process.argv[limitIdx + 1], 10) : null;
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -57,7 +59,7 @@ function sleep(ms) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
+  const args = process.argv.slice(2).filter(a => !a.startsWith('--') && a !== String(RACE_LIMIT));
 
   let dates;
   if (args.length === 0) {
@@ -87,7 +89,7 @@ async function main() {
     process.stdout.write(`[${i + 1}/${dates.length}] ${date} … `);
 
     try {
-      let allRunners = await fetchTimeformResults(date);
+      let allRunners = await fetchTimeformResults(date, { limit: RACE_LIMIT });
 
       // Fallback to GBGB if Timeform returned nothing and --gbgb flag is set
       if (!allRunners.length && useGbgbFallback) {
