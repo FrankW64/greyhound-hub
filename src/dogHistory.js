@@ -96,11 +96,53 @@ function storeRunners(runners) {
   run();
 }
 
+// ── Signal helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Convert a beaten-distance string to numeric lengths.
+ * Winners (null / "-") = 0. Returns null if unparseable.
+ */
+function beatToLengths(beaten) {
+  if (!beaten || beaten === '-') return 0;
+  const lower = beaten.toLowerCase().trim();
+  const shorthand = { 'sh': 0.1, 'shd': 0.1, 'hd': 0.2, 'nk': 0.4, 'snk': 0.3 };
+  if (shorthand[lower] !== undefined) return shorthand[lower];
+  // Handle fractions: "1¼" → 1.25, "½" → 0.5, "2¾" → 2.75
+  const normalised = lower
+    .replace(/¼/g, '.25').replace(/½/g, '.5').replace(/¾/g, '.75')
+    .replace(/\s+/g, '');
+  const n = parseFloat(normalised);
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * Parse a run comment for starting ability.
+ * Returns 0–1: higher = better/faster start.
+ */
+function startScore(comment) {
+  if (!comment) return 0.5;
+  const c = comment.toLowerCase();
+  if (c.includes('vqaw'))                         return 1.0;
+  if (c.includes('qaw'))                          return 0.75;
+  if (c.includes('msdbrk') || c.includes('msdbk')) return 0.0;
+  if (c.includes('saw'))                          return 0.25;
+  return 0.5; // neutral — no start comment
+}
+
+/**
+ * Return true if a run comment contains interference keywords
+ * that excuse a bad result (crowded, bumped, forced to check, fell).
+ */
+function hasInterference(comment) {
+  if (!comment) return false;
+  const c = comment.toLowerCase();
+  return /crd|bmp|fcdtck|fell|stumbled|checked|ck/.test(c);
+}
+
 // ── Full run stats ────────────────────────────────────────────────────────────
 
 /**
  * Return comprehensive stats for a dog using all finishing positions.
- * Falls back to wins-only signals when non-winner rows aren't present.
  *
  * @param {string} dogNameNorm
  * @param {object} opts
@@ -109,15 +151,18 @@ function storeRunners(runners) {
  * @param {number} opts.trap    Current trap number
  *
  * @returns {{
- *   runCount:       number,
- *   winCount:       number,
- *   winRate:        number,   0–1
- *   avgPosition:    number,   mean finishing position (lower = better); null if no data
- *   daysSinceRun:   number|null,
- *   avgGradeScore:  number,
- *   venueWins:      number,
- *   hasFullHistory: boolean,  true if non-winner rows exist (Timeform data)
- *   hasHistory:     boolean,
+ *   runCount:         number,
+ *   winCount:         number,
+ *   winRate:          number,   0–1
+ *   avgPosition:      number,   mean finishing position (lower = better)
+ *   daysSinceRun:     number|null,
+ *   avgGradeScore:    number,
+ *   venueWins:        number,
+ *   avgSpeedIndex:    number|null,  distance/run_time averaged (higher = faster)
+ *   avgBeatenLengths: number|null,  avg lengths beaten by (lower = closer to winning)
+ *   avgStartScore:    number,       0–1 start ability from run comments
+ *   hasFullHistory:   boolean,
+ *   hasHistory:       boolean,
  * }}
  */
 function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {}) {
@@ -127,7 +172,8 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
   const sinceStr = since.toISOString().split('T')[0];
 
   const runs = db.prepare(`
-    SELECT race_date, venue, trap, grade, position
+    SELECT race_date, venue, trap, grade, position,
+           run_time, distance, beaten, run_comment
     FROM   dog_run_history
     WHERE  dog_name_norm = ?
       AND  race_date >= ?
@@ -138,31 +184,32 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
     return {
       runCount: 0, winCount: 0, winRate: 0, avgPosition: null,
       daysSinceRun: null, avgGradeScore: 0, venueWins: 0,
+      avgSpeedIndex: null, avgBeatenLengths: null, avgStartScore: 0.5,
       hasFullHistory: false, hasHistory: false,
     };
   }
 
-  const wins    = runs.filter(r => r.position === 1);
+  const wins     = runs.filter(r => r.position === 1);
   const winCount = wins.length;
   const runCount = runs.length;
-  const winRate  = runCount > 0 ? winCount / runCount : 0;
+  const winRate  = winCount / runCount;
 
   // Days since most recent run
-  const latest     = new Date(runs[0].race_date);
-  const today      = new Date();
+  const latest       = new Date(runs[0].race_date);
+  const today        = new Date();
   today.setHours(0, 0, 0, 0);
   const daysSinceRun = Math.floor((today - latest) / 86400000);
 
-  // Average grade (from all runs, not just wins)
+  // Average grade score
   const gradedRuns    = runs.filter(r => r.grade);
   const avgGradeScore = gradedRuns.length
     ? gradedRuns.reduce((s, r) => s + gradeScore(r.grade), 0) / gradedRuns.length
     : 0;
 
-  // Average finishing position
-  const avgPosition = runCount > 0
-    ? runs.reduce((s, r) => s + r.position, 0) / runCount
-    : null;
+  // Average finishing position (discount interfered runs from the average)
+  const cleanRuns   = runs.filter(r => !hasInterference(r.run_comment));
+  const posRuns     = cleanRuns.length ? cleanRuns : runs; // fallback to all if all had interference
+  const avgPosition = posRuns.reduce((s, r) => s + r.position, 0) / posRuns.length;
 
   // Venue wins
   const venueNorm = (venue || '').toLowerCase().trim();
@@ -170,8 +217,27 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
     ? wins.filter(w => (w.venue || '').toLowerCase().trim() === venueNorm).length
     : 0;
 
-  // Determine if we have full (non-winners-only) data
-  // If any run has position > 1, data is from Timeform (full)
+  // Speed index: distance / run_time (metres per second — higher = faster)
+  const speedRuns = runs.filter(r => r.run_time && r.distance && r.run_time > 0);
+  const avgSpeedIndex = speedRuns.length
+    ? speedRuns.reduce((s, r) => s + (r.distance / r.run_time), 0) / speedRuns.length
+    : null;
+
+  // Closeness score: average lengths beaten by across all runs
+  // Winners count as 0, non-winners use beaten field
+  const beatenRuns = runs.map(r => {
+    if (r.position === 1) return 0;
+    return beatToLengths(r.beaten);
+  }).filter(v => v !== null);
+  const avgBeatenLengths = beatenRuns.length
+    ? beatenRuns.reduce((s, v) => s + v, 0) / beatenRuns.length
+    : null;
+
+  // Starting ability: average start score from run comments
+  const startScores  = runs.map(r => startScore(r.run_comment));
+  const avgStartScore = startScores.reduce((s, v) => s + v, 0) / startScores.length;
+
+  // Full history = any non-winner row present (Timeform data)
   const hasFullHistory = runs.some(r => r.position > 1);
 
   return {
@@ -182,9 +248,12 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
     daysSinceRun,
     avgGradeScore,
     venueWins,
+    avgSpeedIndex,
+    avgBeatenLengths,
+    avgStartScore,
     hasFullHistory,
     hasHistory: true,
   };
 }
 
-module.exports = { storeRunners, getRunStats, gradeScore };
+module.exports = { storeRunners, getRunStats, gradeScore, beatToLengths, startScore };

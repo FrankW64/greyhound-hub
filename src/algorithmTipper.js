@@ -9,11 +9,14 @@
  *
  *  Signal              Weight  Description
  *  ──────────────────  ──────  ────────────────────────────────────────────────
- *  Win rate            30%     Wins / total runs in last 30 days
- *  Avg position        25%     Mean finishing position (lower = better)
- *  Grade quality       20%     Avg grade of races entered (A1 beats A6)
- *  Trap bias           15%     Historical win % for this trap at this venue
- *  Venue wins          10%     Number of wins at this specific track
+ *  Win rate            20%     Wins / total runs in last 30 days
+ *  Avg position        15%     Mean finishing position (excl. interfered runs)
+ *  Closeness           15%     Avg lengths beaten by (lower = closer to winning)
+ *  Speed rating        15%     Avg distance/run_time index (higher = faster)
+ *  Grade quality       12%     Avg grade of races entered (A1 beats A6)
+ *  Trap bias           10%     Historical win % for this trap at this venue
+ *  Start ability        8%     Avg starting speed from run comments (QAw/SAw)
+ *  Venue wins           5%     Number of wins at this specific track
  *
  * All signals normalised within the race.
  * Tip only generated if top dog beats second by more than MIN_CONFIDENCE_GAP.
@@ -45,11 +48,14 @@ const TRAP_BIAS = {
 };
 
 const WEIGHTS = {
-  winRate:    0.30,
-  avgPos:     0.25,
-  grade:      0.20,
-  trapBias:   0.15,
-  venueWins:  0.10,
+  winRate:    0.20,
+  avgPos:     0.15,
+  closeness:  0.15,
+  speed:      0.15,
+  grade:      0.12,
+  trapBias:   0.10,
+  startAbility: 0.08,
+  venueWins:  0.05,
 };
 
 const MIN_CONFIDENCE_GAP = 0.04;
@@ -86,21 +92,31 @@ function scoreRace(race) {
   // Only use full Timeform data — dogs without it get neutral 0.5 on history signals
   const fullIndices = runnerStats.map((r, i) => r.stats.hasFullHistory ? i : -1).filter(i => i >= 0);
 
-  // Win rate — normalised only among dogs with full history
-  const normWinRate = new Array(runnerStats.length).fill(0.5);
-  if (fullIndices.length > 1) {
-    const rates     = fullIndices.map(i => runnerStats[i].stats.winRate);
-    const normed    = normaliseValues(rates);
-    fullIndices.forEach((idx, j) => { normWinRate[idx] = normed[j]; });
+  // Helper: normalise only among dogs with full history, fill rest with 0.5
+  function normAmongFull(valueFn) {
+    const arr = new Array(runnerStats.length).fill(0.5);
+    if (fullIndices.length > 1) {
+      const vals   = fullIndices.map(i => valueFn(runnerStats[i].stats));
+      const normed = normaliseValues(vals);
+      fullIndices.forEach((idx, j) => { arr[idx] = normed[j]; });
+    }
+    return arr;
   }
 
+  // Win rate
+  const normWinRate = normAmongFull(s => s.winRate);
+
   // Avg position — invert so lower (better) scores higher
-  const normAvgPos = new Array(runnerStats.length).fill(0.5);
-  if (fullIndices.length > 1) {
-    const inverted  = fullIndices.map(i => -(runnerStats[i].stats.avgPosition ?? 7));
-    const normed    = normaliseValues(inverted);
-    fullIndices.forEach((idx, j) => { normAvgPos[idx] = normed[j]; });
-  }
+  const normAvgPos = normAmongFull(s => -(s.avgPosition ?? 7));
+
+  // Closeness — invert beaten lengths so less beaten = higher score
+  const normCloseness = normAmongFull(s => -(s.avgBeatenLengths ?? 99));
+
+  // Speed index — higher = faster
+  const normSpeed = normAmongFull(s => s.avgSpeedIndex ?? 0);
+
+  // Start ability — already 0–1, normalise within race
+  const normStart = normAmongFull(s => s.avgStartScore);
 
   // Grade and venue wins — normalised across all runners
   const normGrade     = normaliseValues(runnerStats.map(r => r.stats.avgGradeScore));
@@ -108,22 +124,31 @@ function scoreRace(race) {
 
   return runnerStats.map((rs, i) => {
     const { runner, trap, stats } = rs;
-    const hasHistory = stats.hasFullHistory;
+    const h = stats.hasFullHistory;
 
-    const s_winRate   = hasHistory ? normWinRate[i]   : 0.5;
-    const s_avgPos    = hasHistory ? normAvgPos[i]     : 0.5;
-    const s_grade     = hasHistory ? normGrade[i]      : 0.5;
-    const s_trap      = trapBiasScore(race.venue, trap);
-    const s_venue     = hasHistory ? normVenueWins[i]  : 0.5;
+    const s_winRate      = h ? normWinRate[i]   : 0.5;
+    const s_avgPos       = h ? normAvgPos[i]     : 0.5;
+    const s_closeness    = h ? normCloseness[i]  : 0.5;
+    const s_speed        = h ? normSpeed[i]      : 0.5;
+    const s_grade        = h ? normGrade[i]      : 0.5;
+    const s_trap         = trapBiasScore(race.venue, trap);
+    const s_startAbility = h ? normStart[i]      : 0.5;
+    const s_venue        = h ? normVenueWins[i]  : 0.5;
 
     const score =
-      s_winRate  * WEIGHTS.winRate   +
-      s_avgPos   * WEIGHTS.avgPos    +
-      s_grade    * WEIGHTS.grade     +
-      s_trap     * WEIGHTS.trapBias  +
-      s_venue    * WEIGHTS.venueWins;
+      s_winRate      * WEIGHTS.winRate      +
+      s_avgPos       * WEIGHTS.avgPos       +
+      s_closeness    * WEIGHTS.closeness    +
+      s_speed        * WEIGHTS.speed        +
+      s_grade        * WEIGHTS.grade        +
+      s_trap         * WEIGHTS.trapBias     +
+      s_startAbility * WEIGHTS.startAbility +
+      s_venue        * WEIGHTS.venueWins;
 
-    return { runner, score, signals: { s_winRate, s_avgPos, s_grade, s_trap, s_venue }, hasHistory };
+    return {
+      runner, score, hasHistory: h,
+      signals: { s_winRate, s_avgPos, s_closeness, s_speed, s_grade, s_trap, s_startAbility, s_venue },
+    };
   }).sort((a, b) => b.score - a.score);
 }
 
