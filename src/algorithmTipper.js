@@ -154,7 +154,7 @@ function scoreRace(race, { asOf = null } = {}) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-function generateAlgorithmTips(races, { asOf = null } = {}) {
+function generateAlgorithmTips(races, { asOf = null, minGap = MIN_CONFIDENCE_GAP } = {}) {
   const tips = [];
   let skipped = 0;
 
@@ -166,7 +166,7 @@ function generateAlgorithmTips(races, { asOf = null } = {}) {
     const second = scored[1];
 
     const gap = best.score - (second?.score ?? 0);
-    if (gap < MIN_CONFIDENCE_GAP) { skipped++; continue; }
+    if (gap < minGap) { skipped++; continue; }
 
     tips.push({
       source:     'algorithm',
@@ -176,6 +176,7 @@ function generateAlgorithmTips(races, { asOf = null } = {}) {
       raceTime:   race.time,
       position:   1,
       confidence: parseFloat(best.score.toFixed(3)),
+      gap:        parseFloat(gap.toFixed(4)),
     });
   }
 

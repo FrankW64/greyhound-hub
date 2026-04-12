@@ -7,10 +7,12 @@
  * Assumes £1 level stakes on every tip generated.
  *
  * Usage:
- *   node scripts/backtest.js                                    # default: Mar 1 – Mar 31
- *   node scripts/backtest.js 2026-03-01 2026-03-31              # custom date range
- *   node scripts/backtest.js 2026-03-01 2026-03-31 --verbose    # race-by-race detail
- *   node scripts/backtest.js 2026-03-01 2026-03-31 --min-bsp=6 --max-bsp=20  # BSP filter
+ *   node scripts/backtest.js                                          # default: Mar 1–31, all filters off
+ *   node scripts/backtest.js 2026-03-01 2026-03-31                    # custom date range
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --verbose          # race-by-race detail
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --min-bsp=6 --max-bsp=20
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --min-gap=0.08     # confidence threshold
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --sweep            # auto-sweep gap thresholds
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
@@ -29,11 +31,18 @@ const maxBspArg = process.argv.find(a => a.startsWith('--max-bsp='));
 const MIN_BSP   = minBspArg ? parseFloat(minBspArg.split('=')[1]) : null;
 const MAX_BSP   = maxBspArg ? parseFloat(maxBspArg.split('=')[1]) : null;
 
+// Optional confidence gap threshold e.g. --min-gap=0.08
+const minGapArg = process.argv.find(a => a.startsWith('--min-gap='));
+const MIN_GAP   = minGapArg ? parseFloat(minGapArg.split('=')[1]) : 0.04;
+
+// Sweep mode — test multiple gap thresholds automatically
+const SWEEP     = process.argv.includes('--sweep');
+
 function norm(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-async function main() {
+async function main({ minGap = MIN_GAP, minBsp = MIN_BSP, maxBsp = MAX_BSP, silent = false } = {}) {
   const db = getDb();
 
   // All distinct races in range that have at least one Betfair odds entry
@@ -48,12 +57,13 @@ async function main() {
     ORDER  BY h.race_date, h.race_time
   `).all(START, END);
 
-  const bspLabel = MIN_BSP || MAX_BSP
-    ? ` | BSP filter: ${MIN_BSP ?? 0}–${MAX_BSP ?? '∞'}`
-    : '';
-  console.log(`\n🏁 Backtest: ${START} → ${END}${bspLabel}`);
-  console.log(`   ${races.length} races with Betfair odds coverage\n`);
-  if (verbose) console.log(`${'─'.repeat(95)}`);
+  const bspLabel = minBsp || maxBsp ? ` | BSP: ${minBsp ?? 0}–${maxBsp ?? '∞'}` : '';
+  const gapLabel = ` | min-gap: ${minGap}`;
+  if (!silent) {
+    console.log(`\n🏁 Backtest: ${START} → ${END}${bspLabel}${gapLabel}`);
+    console.log(`   ${races.length} races with Betfair odds coverage\n`);
+    if (verbose) console.log(`${'─'.repeat(95)}`);
+  }
 
   let totalRaces = 0;
   let totalBets  = 0;
@@ -62,9 +72,10 @@ async function main() {
   let noOdds     = 0;
   let noTip      = 0;
 
-  // Weekly and BSP breakdowns
+  // Weekly, BSP and gap breakdowns
   const weeklyStats = {};
   const bspStats    = {};
+  const gapStats    = {}; // keyed by gap bucket e.g. "0.04-0.06"
 
   for (const race of races) {
     totalRaces++;
@@ -84,7 +95,7 @@ async function main() {
       venue:   race.venue,
       time:    race.race_time,
       runners: runners.map(r => ({ name: r.dog_name, trap: r.trap })),
-    }], { asOf: race.race_date });
+    }], { asOf: race.race_date, minGap });
 
     if (!tips.length) { noTip++; continue; }
 
@@ -105,8 +116,8 @@ async function main() {
     if (!oddsRow || !oddsRow.bsp) { noOdds++; continue; }
 
     // Apply BSP filter if set
-    if (MIN_BSP && oddsRow.bsp < MIN_BSP) { noOdds++; continue; }
-    if (MAX_BSP && oddsRow.bsp > MAX_BSP) { noOdds++; continue; }
+    if (minBsp && oddsRow.bsp < minBsp) { noOdds++; continue; }
+    if (maxBsp && oddsRow.bsp > maxBsp) { noOdds++; continue; }
 
     const won  = winner && winner.dog_name_norm === tipNorm;
     const pnl  = won ? (oddsRow.bsp - 1) : -1;
@@ -124,6 +135,18 @@ async function main() {
       bspStats[key].bets++;
       if (won) bspStats[key].wins++;
       bspStats[key].pnl += pnl;
+    }
+
+    // Confidence gap breakdown
+    const tipGap = tip.gap ?? 0;
+    const gapBuckets = [[0.04,0.06],[0.06,0.08],[0.08,0.10],[0.10,0.15],[0.15,1]];
+    const gapBucket  = gapBuckets.find(([lo, hi]) => tipGap >= lo && tipGap < hi);
+    if (gapBucket) {
+      const gkey = gapBucket[0] + '-' + (gapBucket[1] === 1 ? '∞' : gapBucket[1]);
+      if (!gapStats[gkey]) gapStats[gkey] = { bets: 0, wins: 0, pnl: 0, lo: gapBucket[0] };
+      gapStats[gkey].bets++;
+      if (won) gapStats[gkey].wins++;
+      gapStats[gkey].pnl += pnl;
     }
 
     // Weekly tracking (week starting Monday)
@@ -153,17 +176,21 @@ async function main() {
   const roi      = totalBets ? (totalPnL / totalBets) * 100 : 0;
   const winRate  = totalBets ? (totalWins / totalBets) * 100 : 0;
 
-  console.log(`\n${'═'.repeat(60)}`);
-  console.log(`  BACKTEST RESULTS  ${START} → ${END}`);
+  if (!silent) {
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`  BACKTEST RESULTS  ${START} → ${END}`);
+    console.log(`${'═'.repeat(60)}`);
+    console.log(`  Races analysed   : ${totalRaces}`);
+    console.log(`  Tips generated   : ${totalBets}`);
+    console.log(`  Skipped (no tip) : ${noTip}`);
+    console.log(`  Skipped (no BSP) : ${noOdds}`);
+    console.log(`  Winners          : ${totalWins} / ${totalBets} (${winRate.toFixed(1)}%)`);
+    console.log(`  Total P&L        : ${totalPnL >= 0 ? '+' : ''}£${totalPnL.toFixed(2)} (£1 level stakes)`);
+    console.log(`  ROI              : ${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`);
+  }
   console.log(`${'═'.repeat(60)}`);
-  console.log(`  Races analysed   : ${totalRaces}`);
-  console.log(`  Tips generated   : ${totalBets}`);
-  console.log(`  Skipped (no tip) : ${noTip}`);
-  console.log(`  Skipped (no BSP) : ${noOdds}`);
-  console.log(`  Winners          : ${totalWins} / ${totalBets} (${winRate.toFixed(1)}%)`);
-  console.log(`  Total P&L        : ${totalPnL >= 0 ? '+' : ''}£${totalPnL.toFixed(2)} (£1 level stakes)`);
-  console.log(`  ROI              : ${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`);
-  console.log(`${'═'.repeat(60)}`);
+
+  if (silent) return { totalBets, totalWins, totalPnL, roi, winRate };
 
   // BSP range breakdown
   console.log(`\n  BSP range breakdown (algorithm tips only):`);
@@ -174,6 +201,17 @@ async function main() {
     const pl  = (s.pnl >= 0 ? '+' : '') + '£' + s.pnl.toFixed(2);
     const roi = s.bets ? ((s.pnl / s.bets) * 100).toFixed(1) : '0';
     console.log(`  ${key.padEnd(10)} ${String(s.bets).padStart(5)} ${String(s.wins).padStart(5)} ${(wr+'%').padStart(6)} ${pl.padStart(10)} ${(roi+'%').padStart(7)}`);
+  }
+
+  // Confidence gap breakdown
+  console.log(`\n  Confidence gap breakdown:`);
+  console.log(`  ${'Gap'.padEnd(12)} ${'Bets'.padStart(5)} ${'Wins'.padStart(5)} ${'Win%'.padStart(6)} ${'P&L'.padStart(10)} ${'ROI'.padStart(7)}`);
+  console.log(`  ${'─'.repeat(50)}`);
+  for (const [key, s] of Object.entries(gapStats).sort((a, b) => a[1].lo - b[1].lo)) {
+    const wr  = s.bets ? ((s.wins / s.bets) * 100).toFixed(1) : '0';
+    const pl  = (s.pnl >= 0 ? '+' : '') + '£' + s.pnl.toFixed(2);
+    const roi = s.bets ? ((s.pnl / s.bets) * 100).toFixed(1) : '0';
+    console.log(`  ${key.padEnd(12)} ${String(s.bets).padStart(5)} ${String(s.wins).padStart(5)} ${(wr+'%').padStart(6)} ${pl.padStart(10)} ${(roi+'%').padStart(7)}`);
   }
 
   // Weekly breakdown
@@ -188,7 +226,31 @@ async function main() {
   console.log('');
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+async function sweep() {
+  const gapThresholds = [0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12, 0.15];
+  const bspFilters    = [
+    { label: 'All BSP',   minBsp: null, maxBsp: null },
+    { label: 'BSP 3-20',  minBsp: 3,    maxBsp: 20   },
+    { label: 'BSP 6-20',  minBsp: 6,    maxBsp: 20   },
+  ];
+
+  console.log('\n🔬 Gap + BSP sweep\n');
+
+  for (const bspFilter of bspFilters) {
+    console.log(`\n  ── ${bspFilter.label} ──`);
+    console.log(`  ${'min-gap'.padEnd(10)} ${'Bets'.padStart(6)} ${'Win%'.padStart(6)} ${'P&L'.padStart(10)} ${'ROI'.padStart(8)}`);
+    console.log(`  ${'─'.repeat(46)}`);
+    for (const gap of gapThresholds) {
+      const r = await main({ minGap: gap, minBsp: bspFilter.minBsp, maxBsp: bspFilter.maxBsp, silent: true });
+      const pl  = (r.totalPnL >= 0 ? '+' : '') + '£' + r.totalPnL.toFixed(2);
+      const roi = (r.roi >= 0 ? '+' : '') + r.roi.toFixed(1) + '%';
+      console.log(`  ${String(gap).padEnd(10)} ${String(r.totalBets).padStart(6)} ${(r.winRate.toFixed(1)+'%').padStart(6)} ${pl.padStart(10)} ${roi.padStart(8)}`);
+    }
+  }
+}
+
+if (SWEEP) {
+  sweep().catch(err => { console.error('Fatal:', err.message); process.exit(1); });
+} else {
+  main().catch(err => { console.error('Fatal:', err.message); process.exit(1); });
+}
