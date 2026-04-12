@@ -227,7 +227,7 @@ async function main({ minGap = MIN_GAP, minBsp = MIN_BSP, maxBsp = MAX_BSP, sile
 }
 
 async function sweep() {
-  const gapThresholds = [0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12, 0.15];
+  const gapThresholds = [0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12, 0.15, 0.20];
   const bspFilters    = [
     { label: 'All BSP',   minBsp: null, maxBsp: null },
     { label: 'BSP 3-20',  minBsp: 3,    maxBsp: 20   },
