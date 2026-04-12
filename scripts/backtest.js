@@ -234,19 +234,33 @@ async function sweep() {
     { label: 'BSP 6-20',  minBsp: 6,    maxBsp: 20   },
   ];
 
-  console.log('\n🔬 Gap + BSP sweep\n');
+  process.stdout.write('🔬 Running sweep');
+  const results = {};
+  for (const bspFilter of bspFilters) {
+    results[bspFilter.label] = [];
+    for (const gap of gapThresholds) {
+      process.stdout.write('.');
+      const r = await main({ minGap: gap, minBsp: bspFilter.minBsp, maxBsp: bspFilter.maxBsp, silent: true });
+      results[bspFilter.label].push({ gap, ...r });
+    }
+  }
+
+  console.log(' done.\n');
+  console.log(`${'═'.repeat(65)}`);
+  console.log(`  🔬 SWEEP RESULTS  ${START} → ${END}`);
+  console.log(`${'═'.repeat(65)}`);
 
   for (const bspFilter of bspFilters) {
     console.log(`\n  ── ${bspFilter.label} ──`);
     console.log(`  ${'min-gap'.padEnd(10)} ${'Bets'.padStart(6)} ${'Win%'.padStart(6)} ${'P&L'.padStart(10)} ${'ROI'.padStart(8)}`);
     console.log(`  ${'─'.repeat(46)}`);
-    for (const gap of gapThresholds) {
-      const r = await main({ minGap: gap, minBsp: bspFilter.minBsp, maxBsp: bspFilter.maxBsp, silent: true });
+    for (const r of results[bspFilter.label]) {
       const pl  = (r.totalPnL >= 0 ? '+' : '') + '£' + r.totalPnL.toFixed(2);
       const roi = (r.roi >= 0 ? '+' : '') + r.roi.toFixed(1) + '%';
-      console.log(`  ${String(gap).padEnd(10)} ${String(r.totalBets).padStart(6)} ${(r.winRate.toFixed(1)+'%').padStart(6)} ${pl.padStart(10)} ${roi.padStart(8)}`);
+      console.log(`  ${String(r.gap).padEnd(10)} ${String(r.totalBets).padStart(6)} ${(r.winRate.toFixed(1)+'%').padStart(6)} ${pl.padStart(10)} ${roi.padStart(8)}`);
     }
   }
+  console.log('');
 }
 
 if (SWEEP) {
