@@ -168,6 +168,14 @@ function generateAlgorithmTips(races, { asOf = null, minGap = MIN_CONFIDENCE_GAP
     const gap = best.score - (second?.score ?? 0);
     if (gap < minGap) { skipped++; continue; }
 
+    // Tier: 'banker' = high absolute score (likely fancied, consistent dog)
+    //       'value'  = high gap (algorithm strongly differentiates, often overlooked)
+    //       'standard' = meets minimum confidence only
+    // Note: BSP-based tier refinement applied once live odds are available
+    let tipTier = 'standard';
+    if (gap >= 0.15)                              tipTier = 'value';
+    else if (gap >= 0.06 && best.score >= 0.62)   tipTier = 'banker';
+
     tips.push({
       source:     'algorithm',
       sourceName: 'Algorithm',
@@ -177,6 +185,7 @@ function generateAlgorithmTips(races, { asOf = null, minGap = MIN_CONFIDENCE_GAP
       position:   1,
       confidence: parseFloat(best.score.toFixed(3)),
       gap:        parseFloat(gap.toFixed(4)),
+      tipTier,
     });
   }
 
@@ -184,4 +193,4 @@ function generateAlgorithmTips(races, { asOf = null, minGap = MIN_CONFIDENCE_GAP
   return tips;
 }
 
-module.exports = { generateAlgorithmTips };
+module.exports = { generateAlgorithmTips, scoreRace, trapBiasScore };

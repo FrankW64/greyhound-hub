@@ -217,6 +217,49 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_meetings_date   ON meetings(date);
   `);
 
+  // ── ML training data table ──────────────────────────────────────────────────
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS ml_training_data (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      race_date           TEXT    NOT NULL,
+      venue               TEXT    NOT NULL,
+      race_time           TEXT    NOT NULL,
+      dog_name            TEXT    NOT NULL,
+      dog_name_norm       TEXT    NOT NULL,
+      trap                INTEGER,
+      actual_position     INTEGER,
+      won                 INTEGER NOT NULL,   -- 1 or 0
+      bsp                 REAL,               -- Betfair BSP if available
+      -- Features at time of race (asOf = race_date)
+      run_count           INTEGER,
+      win_rate            REAL,
+      avg_position        REAL,
+      avg_beaten_lengths  REAL,
+      avg_speed_index     REAL,
+      avg_start_score     REAL,
+      avg_grade_score     REAL,
+      trap_bias           REAL,
+      venue_wins          INTEGER,
+      days_since_run      INTEGER,
+      has_full_history    INTEGER,            -- 1 or 0
+      -- Race-level context
+      field_size          INTEGER,
+      field_avg_grade     REAL,               -- avg grade score of all runners
+      grade               TEXT,
+      distance            INTEGER,
+      -- Algorithm output
+      algo_score          REAL,
+      confidence_gap      REAL,
+      tip_tier            TEXT,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(race_date, venue, race_time, dog_name_norm)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ml_date    ON ml_training_data(race_date);
+    CREATE INDEX IF NOT EXISTS idx_ml_dog     ON ml_training_data(dog_name_norm);
+    CREATE INDEX IF NOT EXISTS idx_ml_won     ON ml_training_data(won);
+    CREATE INDEX IF NOT EXISTS idx_ml_tier    ON ml_training_data(tip_tier);
+  `);
+
   // Migrate existing accuracy.json data on first run
   migrateJson(_db);
 

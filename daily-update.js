@@ -23,7 +23,12 @@ require('dotenv').config();
 const { getDb }                  = require('./src/database');
 const { scrapeGreyhoundStats }   = require('./src/greyhoundStatsScraper');
 const { fetchTimeformResults }   = require('./src/timeformResultsScraper');
-const { storeRunners }           = require('./src/dogHistory');
+const { storeRunners, getRunStats } = require('./src/dogHistory');
+const { scoreRace, trapBiasScore }  = require('./src/algorithmTipper');
+
+function normName(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 function daysAgo(n) {
   const d = new Date();
@@ -46,7 +51,122 @@ async function scrapeDate(date) {
   storeRunners(runners);
   const hasFullData = runners.some(r => r.position > 1);
   console.log(`[Timeform] ${date}: ${runners.length} runners stored (${hasFullData ? 'full positions' : 'winners-only'})`);
+
+  // Collect ML training data for this date
+  collectMLDataForDate(date);
+
   return runners.length;
+}
+
+function collectMLDataForDate(date) {
+  const db = getDb();
+
+  const insert = db.prepare(`
+    INSERT OR REPLACE INTO ml_training_data (
+      race_date, venue, race_time,
+      dog_name, dog_name_norm, trap,
+      actual_position, won, bsp,
+      run_count, win_rate, avg_position,
+      avg_beaten_lengths, avg_speed_index, avg_start_score,
+      avg_grade_score, trap_bias, venue_wins,
+      days_since_run, has_full_history,
+      field_size, field_avg_grade, grade, distance,
+      algo_score, confidence_gap, tip_tier
+    ) VALUES (
+      @race_date, @venue, @race_time,
+      @dog_name, @dog_name_norm, @trap,
+      @actual_position, @won, @bsp,
+      @run_count, @win_rate, @avg_position,
+      @avg_beaten_lengths, @avg_speed_index, @avg_start_score,
+      @avg_grade_score, @trap_bias, @venue_wins,
+      @days_since_run, @has_full_history,
+      @field_size, @field_avg_grade, @grade, @distance,
+      @algo_score, @confidence_gap, @tip_tier
+    )
+  `);
+
+  const races = db.prepare(`
+    SELECT DISTINCT venue, race_time FROM dog_run_history
+    WHERE race_date = ? ORDER BY race_time
+  `).all(date);
+
+  let rowCount = 0;
+
+  for (const race of races) {
+    const runners = db.prepare(`
+      SELECT dog_name, dog_name_norm, trap, position, grade, distance
+      FROM   dog_run_history
+      WHERE  race_date = ? AND venue = ? AND race_time = ?
+      ORDER  BY position
+    `).all(date, race.venue, race.race_time);
+
+    if (runners.length < 2) continue;
+
+    const scored  = scoreRace({
+      venue:   race.venue,
+      time:    race.race_time,
+      runners: runners.map(r => ({ name: r.dog_name, trap: r.trap })),
+    }, { asOf: date });
+
+    const best    = scored[0];
+    const second  = scored[1];
+    const topGap  = best && second ? best.score - second.score : 0;
+    const grade   = runners[0].grade    || null;
+    const distance = runners[0].distance || null;
+
+    let tipTier = 'standard';
+    if (topGap >= 0.15)                            tipTier = 'value';
+    else if (topGap >= 0.06 && best.score >= 0.62) tipTier = 'banker';
+
+    const storeRows = db.transaction(() => {
+      let c = 0;
+      for (const sr of scored) {
+        const dn     = normName(sr.runner.name);
+        const actual = runners.find(r => r.dog_name_norm === dn);
+        if (!actual) continue;
+
+        const stats   = getRunStats(dn, { days: 30, venue: race.venue, asOf: date });
+        const oddsRow = db.prepare('SELECT bsp FROM betfair_odds WHERE race_date=? AND race_time=? AND dog_name_norm=?')
+                          .get(date, race.race_time, dn);
+        const isTop   = sr === best;
+
+        insert.run({
+          race_date:          date,
+          venue:              race.venue,
+          race_time:          race.race_time,
+          dog_name:           sr.runner.name,
+          dog_name_norm:      dn,
+          trap:               actual.trap    || null,
+          actual_position:    actual.position,
+          won:                actual.position === 1 ? 1 : 0,
+          bsp:                oddsRow?.bsp   ?? null,
+          run_count:          stats.runCount,
+          win_rate:           stats.winRate,
+          avg_position:       stats.avgPosition,
+          avg_beaten_lengths: stats.avgBeatenLengths,
+          avg_speed_index:    stats.avgSpeedIndex,
+          avg_start_score:    stats.avgStartScore,
+          avg_grade_score:    stats.avgGradeScore,
+          trap_bias:          trapBiasScore(race.venue, actual.trap),
+          venue_wins:         stats.venueWins,
+          days_since_run:     stats.daysSinceRun,
+          has_full_history:   stats.hasFullHistory ? 1 : 0,
+          field_size:         runners.length,
+          field_avg_grade:    null,
+          grade,
+          distance,
+          algo_score:         sr.score,
+          confidence_gap:     isTop ? topGap : null,
+          tip_tier:           isTop ? tipTier : null,
+        });
+        c++;
+      }
+      return c;
+    });
+    rowCount += storeRows();
+  }
+
+  console.log(`[ML] ${date}: ${rowCount} training rows stored`);
 }
 
 async function main() {
