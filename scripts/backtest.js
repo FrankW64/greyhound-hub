@@ -7,9 +7,10 @@
  * Assumes £1 level stakes on every tip generated.
  *
  * Usage:
- *   node scripts/backtest.js                        # default: Mar 1 – Mar 31
- *   node scripts/backtest.js 2026-03-01 2026-03-31  # custom date range
- *   node scripts/backtest.js 2026-03-01 2026-03-31 --verbose
+ *   node scripts/backtest.js                                    # default: Mar 1 – Mar 31
+ *   node scripts/backtest.js 2026-03-01 2026-03-31              # custom date range
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --verbose    # race-by-race detail
+ *   node scripts/backtest.js 2026-03-01 2026-03-31 --min-bsp=6 --max-bsp=20  # BSP filter
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
@@ -21,6 +22,12 @@ const args      = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const verbose   = process.argv.includes('--verbose');
 const START     = args[0] || '2026-03-01';
 const END       = args[1] || '2026-03-31';
+
+// Optional BSP range filter e.g. --min-bsp=6 --max-bsp=20
+const minBspArg = process.argv.find(a => a.startsWith('--min-bsp='));
+const maxBspArg = process.argv.find(a => a.startsWith('--max-bsp='));
+const MIN_BSP   = minBspArg ? parseFloat(minBspArg.split('=')[1]) : null;
+const MAX_BSP   = maxBspArg ? parseFloat(maxBspArg.split('=')[1]) : null;
 
 function norm(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -41,7 +48,10 @@ async function main() {
     ORDER  BY h.race_date, h.race_time
   `).all(START, END);
 
-  console.log(`\n🏁 Backtest: ${START} → ${END}`);
+  const bspLabel = MIN_BSP || MAX_BSP
+    ? ` | BSP filter: ${MIN_BSP ?? 0}–${MAX_BSP ?? '∞'}`
+    : '';
+  console.log(`\n🏁 Backtest: ${START} → ${END}${bspLabel}`);
   console.log(`   ${races.length} races with Betfair odds coverage\n`);
   if (verbose) console.log(`${'─'.repeat(95)}`);
 
@@ -52,8 +62,9 @@ async function main() {
   let noOdds     = 0;
   let noTip      = 0;
 
-  // Weekly breakdown
+  // Weekly and BSP breakdowns
   const weeklyStats = {};
+  const bspStats    = {};
 
   for (const race of races) {
     totalRaces++;
@@ -93,12 +104,27 @@ async function main() {
 
     if (!oddsRow || !oddsRow.bsp) { noOdds++; continue; }
 
+    // Apply BSP filter if set
+    if (MIN_BSP && oddsRow.bsp < MIN_BSP) { noOdds++; continue; }
+    if (MAX_BSP && oddsRow.bsp > MAX_BSP) { noOdds++; continue; }
+
     const won  = winner && winner.dog_name_norm === tipNorm;
     const pnl  = won ? (oddsRow.bsp - 1) : -1;
 
     totalBets++;
     if (won) totalWins++;
     totalPnL += pnl;
+
+    // BSP range breakdown
+    const bspRanges = [[1,2],[2,3],[3,4],[4,6],[6,10],[10,20],[20,1000]];
+    const bucket = bspRanges.find(([lo, hi]) => oddsRow.bsp >= lo && oddsRow.bsp < hi);
+    if (bucket) {
+      const key = bucket[0] + '-' + (bucket[1] === 1000 ? '∞' : bucket[1]);
+      if (!bspStats[key]) bspStats[key] = { bets: 0, wins: 0, pnl: 0, lo: bucket[0] };
+      bspStats[key].bets++;
+      if (won) bspStats[key].wins++;
+      bspStats[key].pnl += pnl;
+    }
 
     // Weekly tracking (week starting Monday)
     const d       = new Date(race.race_date);
@@ -138,6 +164,17 @@ async function main() {
   console.log(`  Total P&L        : ${totalPnL >= 0 ? '+' : ''}£${totalPnL.toFixed(2)} (£1 level stakes)`);
   console.log(`  ROI              : ${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`);
   console.log(`${'═'.repeat(60)}`);
+
+  // BSP range breakdown
+  console.log(`\n  BSP range breakdown (algorithm tips only):`);
+  console.log(`  ${'Range'.padEnd(10)} ${'Bets'.padStart(5)} ${'Wins'.padStart(5)} ${'Win%'.padStart(6)} ${'P&L'.padStart(10)} ${'ROI'.padStart(7)}`);
+  console.log(`  ${'─'.repeat(50)}`);
+  for (const [key, s] of Object.entries(bspStats).sort((a, b) => a[1].lo - b[1].lo)) {
+    const wr  = s.bets ? ((s.wins / s.bets) * 100).toFixed(1) : '0';
+    const pl  = (s.pnl >= 0 ? '+' : '') + '£' + s.pnl.toFixed(2);
+    const roi = s.bets ? ((s.pnl / s.bets) * 100).toFixed(1) : '0';
+    console.log(`  ${key.padEnd(10)} ${String(s.bets).padStart(5)} ${String(s.wins).padStart(5)} ${(wr+'%').padStart(6)} ${pl.padStart(10)} ${(roi+'%').padStart(7)}`);
+  }
 
   // Weekly breakdown
   console.log(`\n  Weekly breakdown:`);
