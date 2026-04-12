@@ -207,13 +207,38 @@ async function fetchRaceResult({ url, venue, time, date, raceId }) {
     const html = await fetchHtml(url);
     const $    = cheerio.load(html);
 
-    // Extract grade and distance from page text
-    const pageText = $('h1, [class*="race-header"], [class*="racecard-header"], [class*="race-title"]')
-      .first().text();
-    const bodyText = $('body').text();
+    // Extract grade and distance — try multiple sources in priority order
+    let grade    = null;
+    let distance = null;
 
-    const grade    = extractGrade(pageText)    || extractGrade(bodyText);
-    const distance = extractDistance(pageText) || extractDistance(bodyText);
+    // 1. Page <title> often contains "A3 475m Romford..."
+    const titleText = $('title').text();
+    if (!grade)    grade    = extractGrade(titleText);
+    if (!distance) distance = extractDistance(titleText);
+
+    // 2. Specific header / race-detail selectors
+    const headerSelectors = [
+      'h1', 'h2',
+      '[class*="race-header"]',
+      '[class*="racecard-header"]',
+      '[class*="race-title"]',
+      '[class*="race-details"]',
+      '[class*="race-info"]',
+      '[class*="event-header"]',
+    ];
+    for (const sel of headerSelectors) {
+      if (grade && distance) break;
+      const text = $(sel).first().text();
+      if (!grade)    grade    = extractGrade(text);
+      if (!distance) distance = extractDistance(text);
+    }
+
+    // 3. Full body text as last resort
+    if (!grade || !distance) {
+      const bodyText = $('body').text();
+      if (!grade)    grade    = extractGrade(bodyText);
+      if (!distance) distance = extractDistance(bodyText);
+    }
 
     const rawRunners = parseRaceRunners($);
     if (!rawRunners.length) {

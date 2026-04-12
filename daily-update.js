@@ -39,6 +39,46 @@ function daysAgo(n) {
 function today()     { return daysAgo(0); }
 function yesterday() { return daysAgo(1); }
 
+/**
+ * Re-scrape any dates in the last N days that still have null run_time,
+ * beaten, run_comment, or grade. Fills gaps via the COALESCE upsert in
+ * storeRunners — safe to run any number of times.
+ */
+async function autoFillNulls(lookbackDays = 5) {
+  const db    = getDb();
+  const today = new Date().toISOString().split('T')[0];
+
+  const dates = db.prepare(`
+    SELECT DISTINCT race_date
+    FROM   dog_run_history
+    WHERE  (run_time IS NULL OR beaten IS NULL OR run_comment IS NULL OR grade IS NULL)
+      AND  race_date < ?
+      AND  race_date >= date(?, '-' || ? || ' days')
+    ORDER  BY race_date ASC
+  `).all(today, today, lookbackDays).map(r => r.race_date);
+
+  if (!dates.length) {
+    console.log('[AutoFill] No recent dates with missing fields — skipping');
+    return;
+  }
+
+  console.log(`[AutoFill] Re-scraping ${dates.length} date(s) with null fields: ${dates.join(', ')}`);
+
+  for (const date of dates) {
+    try {
+      const runners = await fetchTimeformResults(date);
+      if (runners.length) {
+        storeRunners(runners);
+        console.log(`[AutoFill] ${date}: ${runners.length} runners re-processed`);
+      } else {
+        console.log(`[AutoFill] ${date}: no runners returned`);
+      }
+    } catch (err) {
+      console.error(`[AutoFill] ${date} error: ${err.message}`);
+    }
+  }
+}
+
 async function scrapeDate(date) {
   console.log(`\n[Timeform] Scraping results for ${date}…`);
   const runners = await fetchTimeformResults(date);
@@ -188,6 +228,15 @@ async function main() {
       totalRunners += await scrapeDate(yesterday());
     } catch (err) {
       console.error(`[Timeform] Error: ${err.message}`);
+      errors++;
+    }
+
+    // Auto-fill any nulls in the last 5 days (run times often published after racing)
+    console.log('\n[AutoFill] Checking last 5 days for missing fields…');
+    try {
+      await autoFillNulls(5);
+    } catch (err) {
+      console.error(`[AutoFill] Error: ${err.message}`);
       errors++;
     }
 
