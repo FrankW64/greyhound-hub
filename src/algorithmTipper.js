@@ -81,11 +81,11 @@ function trapBiasScore(venue, trap) {
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
-function scoreRace(race) {
+function scoreRace(race, { asOf = null } = {}) {
   const runnerStats = race.runners.map(runner => {
     const dogNorm = norm(runner.name);
     const trap    = runner.trap || null;
-    const stats   = getRunStats(dogNorm, { days: 30, venue: race.venue });
+    const stats   = getRunStats(dogNorm, { days: 30, venue: race.venue, asOf });
     return { runner, trap, stats };
   });
 
@@ -154,14 +154,14 @@ function scoreRace(race) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-function generateAlgorithmTips(races) {
+function generateAlgorithmTips(races, { asOf = null } = {}) {
   const tips = [];
   let skipped = 0;
 
   for (const race of races) {
     if (!race.runners || race.runners.length < 2) continue;
 
-    const scored = scoreRace(race);
+    const scored = scoreRace(race, { asOf });
     const best   = scored[0];
     const second = scored[1];
 

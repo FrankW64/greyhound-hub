@@ -165,11 +165,13 @@ function hasInterference(comment) {
  *   hasHistory:       boolean,
  * }}
  */
-function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {}) {
+function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null, asOf = null } = {}) {
   const db    = getDb();
-  const since = new Date();
+  const base  = asOf ? new Date(asOf) : new Date();
+  const since = new Date(base);
   since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().split('T')[0];
+  const sinceStr  = since.toISOString().split('T')[0];
+  const asOfStr   = base.toISOString().split('T')[0];
 
   const runs = db.prepare(`
     SELECT race_date, venue, trap, grade, position,
@@ -177,8 +179,9 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
     FROM   dog_run_history
     WHERE  dog_name_norm = ?
       AND  race_date >= ?
+      AND  race_date <  ?
     ORDER  BY race_date DESC
-  `).all(dogNameNorm, sinceStr);
+  `).all(dogNameNorm, sinceStr, asOfStr);
 
   if (!runs.length) {
     return {
@@ -194,11 +197,11 @@ function getRunStats(dogNameNorm, { days = 30, venue = null, trap = null } = {})
   const runCount = runs.length;
   const winRate  = winCount / runCount;
 
-  // Days since most recent run
+  // Days since most recent run (relative to asOf date)
   const latest       = new Date(runs[0].race_date);
-  const today        = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysSinceRun = Math.floor((today - latest) / 86400000);
+  const refDate      = new Date(asOfStr);
+  refDate.setHours(0, 0, 0, 0);
+  const daysSinceRun = Math.floor((refDate - latest) / 86400000);
 
   // Average grade score
   const gradedRuns    = runs.filter(r => r.grade);
