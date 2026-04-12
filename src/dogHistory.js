@@ -56,7 +56,7 @@ function storeRunners(runners) {
   const now = new Date().toISOString();
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO dog_run_history
+    INSERT INTO dog_run_history
       (race_date, venue, race_time, grade, distance,
        dog_name, dog_name_norm, trap, position, run_time,
        beaten, run_comment, created_at)
@@ -64,6 +64,13 @@ function storeRunners(runners) {
       (@race_date, @venue, @race_time, @grade, @distance,
        @dog_name, @dog_name_norm, @trap, @position, @run_time,
        @beaten, @run_comment, @created_at)
+    ON CONFLICT(race_date, venue, race_time, dog_name_norm) DO UPDATE SET
+      run_time    = COALESCE(excluded.run_time,    run_time),
+      beaten      = COALESCE(excluded.beaten,      beaten),
+      run_comment = COALESCE(excluded.run_comment, run_comment),
+      grade       = COALESCE(excluded.grade,       grade),
+      distance    = COALESCE(excluded.distance,    distance),
+      trap        = COALESCE(excluded.trap,        trap)
   `);
 
   const run = db.transaction(() => {
